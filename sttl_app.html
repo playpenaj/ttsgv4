@@ -13,27 +13,33 @@
   font-family: 'Segoe UI', Roboto, Arial, sans-serif;
 }
 *{box-sizing:border-box;}
-body{margin:0;background:var(--bg);color:var(--text);}
-header{background:linear-gradient(120deg,var(--navy),var(--navy2));color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
-header .brand{display:flex;flex-direction:column}
-header .brand b{font-size:20px}
-header .brand small{color:#cfe0f5;opacity:.85}
+html,body{margin:0;overflow-x:hidden;width:100%;}
+body{background:var(--bg);color:var(--text);-webkit-tap-highlight-color:transparent;}
+header{background:linear-gradient(120deg,var(--navy),var(--navy2));color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+header .brand{display:flex;flex-direction:column;min-width:0}
+header .brand b{font-size:19px}
+header .brand small{color:#cfe0f5;opacity:.85;font-size:12px}
 header .sponsor{font-size:12px;color:#cfe0f5}
 header .sponsor a{color:#ffd9c4}
-nav{display:flex;gap:6px;background:#fff;border-bottom:1px solid var(--line);padding:0 14px;overflow-x:auto}
-nav button{background:none;border:none;padding:12px 16px;font-size:14px;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+nav{display:flex;flex-wrap:wrap;gap:4px;background:#fff;border-bottom:1px solid var(--line);padding:6px 10px;width:100%}
+nav button{background:none;border:none;padding:11px 14px;font-size:14px;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;border-radius:6px;min-height:44px;transition:background .15s,color .15s}
 nav button.active{color:var(--navy);border-bottom-color:var(--accent);font-weight:600}
+nav button:hover:not(:disabled){background:#f1f5fb;color:var(--navy)}
 nav button:disabled{opacity:.4;cursor:not-allowed}
-main{max-width:900px;margin:0 auto;padding:20px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px;box-shadow:0 1px 3px rgba(20,30,50,.05)}
-h2{margin-top:0;color:var(--navy)}
+main{max-width:900px;margin:0 auto;padding:16px;width:100%}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(20,30,50,.05);max-width:100%}
+h2{margin-top:0;color:var(--navy);font-size:18px}
 label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
-input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:14px}
-button.btn{background:var(--accent);color:#fff;border:none;padding:10px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px}
+input,select,textarea{width:100%;padding:11px 10px;border:1px solid var(--line);border-radius:6px;font-size:16px;background:#fff}
+button.btn{background:var(--accent);color:#fff;border:none;padding:12px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px;min-height:44px;transition:background .15s,transform .05s;}
 button.btn:hover{background:var(--accent2)}
+button.btn:active{transform:scale(.98)}
 button.btn.secondary{background:var(--navy)}
+button.btn.secondary:hover{background:var(--navy2)}
 button.btn.ghost{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+button.btn.ghost:hover{background:var(--navy);color:#fff}
 button.btn:disabled{opacity:.5;cursor:not-allowed}
+button.btn:disabled:hover{background:var(--accent)}
 .row{display:flex;gap:10px;flex-wrap:wrap}
 .row>*{flex:1;min-width:160px}
 .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600}
@@ -41,15 +47,27 @@ button.btn:disabled{opacity:.5;cursor:not-allowed}
 .badge.warn{background:#fdecec;color:var(--warn)}
 .badge.muted{background:#eef1f5;color:var(--muted)}
 .muted{color:var(--muted);font-size:13px}
-table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left}
-.overlay{position:fixed;inset:0;background:rgba(10,20,35,.55);display:flex;align-items:center;justify-content:center;z-index:50}
-.modal{background:#fff;border-radius:10px;padding:22px;max-width:420px;width:92%}
+.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:420px}
+th,td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+tr:hover td{background:#f7f9fc}
+.overlay{position:fixed;inset:0;background:rgba(10,20,35,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:14px}
+.modal{background:#fff;border-radius:10px;padding:22px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto}
 .error{color:var(--warn);font-size:13px;margin-top:6px}
 .tag{display:inline-block;background:#eef2f8;color:var(--navy);padding:3px 8px;border-radius:6px;font-size:12px;margin-right:4px}
+.tag a{cursor:pointer}
+.tag a:hover{color:var(--warn)}
 .hidden{display:none !important}
 footer{text-align:center;padding:20px;color:var(--muted);font-size:12px}
 a.link{color:var(--navy);cursor:pointer;text-decoration:underline;font-size:13px}
+a.link:hover{color:var(--accent)}
+@media (max-width:600px){
+  header{padding:10px 12px}
+  main{padding:10px}
+  .card{padding:14px}
+  nav button{padding:10px 12px;font-size:13px}
+  .row>*{min-width:100%}
+}
 </style>
 </head>
 <body>
@@ -96,6 +114,7 @@ const nav=document.getElementById('nav');
 function pwOk(p){return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(p);}
 function daysSince(d){ if(!d) return 9999; return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
 function fmtDate(d){return d? new Date(d).toLocaleDateString():'-';}
+function fmtDateTime(d){return d? new Date(d).toLocaleString():'Never';}
 function isTrialActive(p){return new Date(p.trial_ends_on) >= new Date(new Date().toDateString());}
 function canPlay(p){return p.is_approved && (isTrialActive(p) || p.is_subscribed);}
 
@@ -234,6 +253,9 @@ async function loadMeAndBoot(){
   let {data:p} = await sb.from('sttl_players').select('*').eq('id',user.id).maybeSingle();
   if(!p){ renderLogin(); return; }
   me = {...p, email:user.email};
+  const previousLoginAt = me.last_login_at; // keep pre-update value to display as "last login"
+  sb.from('sttl_players').update({last_login_at:new Date().toISOString()}).eq('id',me.id).then(()=>{});
+  me.last_login_at = previousLoginAt;
   nav.classList.remove('hidden');
   document.getElementById('whoBar').textContent = `${me.name} · ${me.community_center}`;
   document.getElementById('adminNavBtn').classList.toggle('hidden', !me.is_admin);
@@ -347,21 +369,22 @@ async function renderDashboard(){
       <div class="card" style="margin:0"><div class="muted">Record</div><div style="font-size:26px;font-weight:700">${mine.wins}W – ${mine.losses}L</div></div>
       <div class="card" style="margin:0"><div class="muted">Overall rank</div><div style="font-size:26px;font-weight:700">#${myRank||'-'} <span class="muted" style="font-size:14px">of ${byRating.length}</span></div></div>
     </div>
+    <p class="muted" style="margin-top:10px">Last login: ${fmtDateTime(me.last_login_at)}</p>
   </div>
   <div class="card"><h2>League highlights</h2>
     <p>🏆 <b>Overall Champion (points):</b> ${champion? `${champion.name} — ${champion.rating} pts`:'-'}</p>
     <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${mostPlayed.name} — ${mostPlayed.played} matches`:'-'}</p>
   </div>
   <div class="card"><h2>Overall leaderboard (by points)</h2>
-    <table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th></tr>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th></tr>
     ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${p.name}${p.id===me.id?' <span class="tag">you</span>':''}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td></tr>`).join('')}
-    </table>
+    </table></div>
   </div>
   <div class="card"><h2>Singles leaderboard</h2>
-    <table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
   </div>
   <div class="card"><h2>Doubles leaderboard</h2>
-    <table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
   </div>`;
 }
 
@@ -451,7 +474,7 @@ async function renderMatches(){
     return `<tr><td>${await nameOf(c.challenger_id)}</td><td>${await nameOf(c.opponent_id)}</td><td>${c.match_type}</td><td>${action}</td></tr>`;
   }));
   app.innerHTML = `<div class="card"><h2>Your matches</h2>
-    <table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>Status</th></tr>${rows.join('')||'<tr><td colspan=4 class="muted">No accepted matches yet.</td></tr>'}</table>
+    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>Status</th></tr>${rows.join('')||'<tr><td colspan=4 class="muted">No accepted matches yet.</td></tr>'}</table></div>
   </div>`;
 }
 window.openScoreEntry = (challengeId)=>{
@@ -502,10 +525,10 @@ function renderShop(){
   app.innerHTML = `<div class="card"><h2>Sin Ten Sports Shop</h2>
     <p>Your rating: <b>${me.rating}</b> → Tier: <span class="tag">${t.name}</span></p>
     <p>You get <b>${t.pct}% off</b> at <a class="link" onclick="window.open('https://www.sintensports.com.sg/','_blank')">Sin Ten Sports Trading</a>. Show your profile at checkout.</p>
-    <table><tr><th>Tier</th><th>Rating</th><th>Discount</th></tr>
+    <div class="table-scroll"><table><tr><th>Tier</th><th>Rating</th><th>Discount</th></tr>
     <tr><td>Bronze</td><td>&lt;1150</td><td>5%</td></tr>
     <tr><td>Silver</td><td>1150–1299</td><td>10%</td></tr>
-    <tr><td>Gold</td><td>1300+</td><td>15%</td></tr></table>
+    <tr><td>Gold</td><td>1300+</td><td>15%</td></tr></table></div>
   </div>`;
 }
 
@@ -568,18 +591,19 @@ async function renderAdmin(){
     <button class="btn" id="nu_go" style="margin-top:10px">Add player (auto-approved)</button>
   </div>
   <div class="card"><h2>Manage players</h2>
-    <table><tr><th>Name</th><th>Email</th><th>CC</th><th>Age</th><th>Approved</th><th>Subscribed</th><th>Actions</th></tr>
+    <div class="table-scroll"><table><tr><th>Name</th><th>Email</th><th>CC</th><th>Age</th><th>Approved</th><th>Subscribed</th><th>Last Login</th><th>Actions</th></tr>
     ${(all||[]).map(p=>`<tr>
       <td>${p.name}${p.is_admin?' <span class="tag">admin</span>':''}</td><td>${p.email||''}</td><td>${p.community_center}</td><td>${p.age}</td>
       <td>${p.is_approved?'<span class="badge ok">Yes</span>':'<span class="badge warn">No</span>'}</td>
       <td>${p.is_subscribed?'<span class="badge ok">Yes</span>':'<span class="badge muted">No</span>'}</td>
+      <td>${fmtDateTime(p.last_login_at)}</td>
       <td>
         ${!p.is_approved?`<button class="btn" onclick="approveUser('${p.id}')">Approve</button>`:''}
         <button class="btn ghost" onclick="editUser('${p.id}')">Edit</button>
         <button class="btn ghost" style="color:var(--warn)" onclick="deleteUser('${p.id}')">Remove</button>
       </td>
     </tr>`).join('')}
-    </table>
+    </table></div>
   </div>
   <div class="card"><h2>Community centers</h2>
     <div class="row">${(ccs||[]).map(c=>`<span class="tag">${c.name} <a onclick="removeCC('${c.id}','${c.name.replace(/'/g,"\\'")}')" style="cursor:pointer">✕</a></span>`).join(' ')}</div>
