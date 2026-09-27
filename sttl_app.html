@@ -61,6 +61,7 @@ a.link{color:var(--navy);cursor:pointer;text-decoration:underline;font-size:13px
 </header>
 
 <nav id="nav" class="hidden">
+  <button data-tab="dashboard" class="navbtn">Dashboard</button>
   <button data-tab="play" class="navbtn">Play</button>
   <button data-tab="challenges" class="navbtn">Challenges</button>
   <button data-tab="matches" class="navbtn">Matches</button>
@@ -161,6 +162,17 @@ async function renderSignup(){
     const {data,error} = await sb.auth.signUp({email,password:pw});
     if(error){ err.textContent=error.message; return; }
     if(data.user && data.user.identities && data.user.identities.length===0){
+      // Supabase says this email is already registered. But it may just be a
+      // stuck/orphaned account from an earlier failed signup that never got
+      // its profile row — check for that and self-heal instead of blocking.
+      const {data:existingProfile} = await sb.from('sttl_players').select('id').ilike('email',email).maybeSingle();
+      if(!existingProfile && data.user.id){
+        const reg = await callFn({action:'register_profile', id:data.user.id, name, email, age, community_center:cc}, false);
+        if(!reg.error){
+          const {data:signInData, error:signInErr} = await sb.auth.signInWithPassword({email,password:pw});
+          if(!signInErr){ session = signInData.session; await loadMeAndBoot(); return; }
+        }
+      }
       err.textContent = 'An account with this email already exists. Please log in, or use Forgot password.';
       return;
     }
@@ -230,7 +242,7 @@ async function loadMeAndBoot(){
   });
   document.getElementById('logoutBtn').onclick = async ()=>{ await sb.auth.signOut(); location.reload(); };
   await checkLoginPopups();
-  activeTab='play'; renderTab();
+  activeTab='dashboard'; renderTab();
 }
 
 async function checkLoginPopups(){
@@ -274,6 +286,7 @@ async function showMatchPopup(){
 function renderTab(){
   document.querySelectorAll('.navbtn[data-tab]').forEach(b=>b.classList.toggle('active', b.dataset.tab===activeTab));
   document.querySelector('[data-tab="play"]').disabled = !canPlay(me);
+  if(activeTab==='dashboard') return renderDashboard();
   if(activeTab==='play') return renderPlay();
   if(activeTab==='challenges') return renderChallenges();
   if(activeTab==='matches') return renderMatches();
@@ -285,6 +298,71 @@ function renderTab(){
 async function refreshPlayers(){
   const {data} = await sb.from('sttl_players').select('id,name,community_center,is_approved,is_subscribed,rating').eq('is_approved',true);
   players = (data||[]).filter(p=>p.id!==me.id);
+}
+
+async function computeLeagueStats(){
+  const {data:allPlayers} = await sb.from('sttl_players').select('id,name,rating,is_approved');
+  const {data:results} = await sb.from('sttl_match_results').select('*, sttl_challenges(*)').eq('acknowledged',true);
+  const stat = {}; // id -> {wins,losses,played,singlesWins,singlesLosses,doublesWins,doublesLosses}
+  const ensure = id => stat[id] || (stat[id] = {wins:0,losses:0,played:0,singlesWins:0,singlesLosses:0,doublesWins:0,doublesLosses:0});
+  (results||[]).forEach(r=>{
+    const c = r.sttl_challenges; if(!c) return;
+    const isDoubles = c.match_type==='doubles';
+    const winners = c.challenger_id ? [c.challenger_id] : [];
+    const losers = c.opponent_id ? [c.opponent_id] : [];
+    let sideAWins = r.winner_side==='challenger';
+    let teamA = [c.challenger_id, c.challenger_partner_id].filter(Boolean);
+    let teamB = [c.opponent_id, c.opponent_partner_id].filter(Boolean);
+    let winTeam = sideAWins ? teamA : teamB;
+    let loseTeam = sideAWins ? teamB : teamA;
+    winTeam.forEach(id=>{ const s=ensure(id); s.wins++; s.played++; if(isDoubles) s.doublesWins++; else s.singlesWins++; });
+    loseTeam.forEach(id=>{ const s=ensure(id); s.losses++; s.played++; if(isDoubles) s.doublesLosses++; else s.singlesLosses++; });
+  });
+  const merged = (allPlayers||[]).filter(p=>p.is_approved).map(p=>({
+    id:p.id, name:p.name, rating:p.rating,
+    ...{wins:0,losses:0,played:0,singlesWins:0,singlesLosses:0,doublesWins:0,doublesLosses:0},
+    ...(stat[p.id]||{})
+  }));
+  return merged;
+}
+
+async function renderDashboard(){
+  app.innerHTML = `<div class="card"><p class="muted">Loading dashboard…</p></div>`;
+  const all = await computeLeagueStats();
+  const byRating = [...all].sort((a,b)=>b.rating-a.rating);
+  const myRank = byRating.findIndex(p=>p.id===me.id)+1;
+  const champion = byRating[0];
+  const mostPlayed = [...all].sort((a,b)=>b.played-a.played)[0];
+  const singlesBoard = all.filter(p=>p.singlesWins+p.singlesLosses>0).sort((a,b)=>b.singlesWins-a.singlesWins || (b.singlesWins-b.singlesLosses)-(a.singlesWins-a.singlesLosses));
+  const doublesBoard = all.filter(p=>p.doublesWins+p.doublesLosses>0).sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
+  const mine = all.find(p=>p.id===me.id) || {wins:0,losses:0,played:0,rating:me.rating};
+
+  const boardRows = (list, wKey, lKey) => list.slice(0,10).map((p,i)=>`
+    <tr><td>${i+1}</td><td>${p.name}${p.id===me.id?' <span class="tag">you</span>':''}</td><td>${p[wKey]}</td><td>${p[lKey]}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No matches recorded yet.</td></tr>';
+
+  app.innerHTML = `
+  <div class="card"><h2>Your status</h2>
+    <div class="row">
+      <div class="card" style="margin:0"><div class="muted">Points (rating)</div><div style="font-size:26px;font-weight:700">${mine.rating}</div></div>
+      <div class="card" style="margin:0"><div class="muted">Record</div><div style="font-size:26px;font-weight:700">${mine.wins}W – ${mine.losses}L</div></div>
+      <div class="card" style="margin:0"><div class="muted">Overall rank</div><div style="font-size:26px;font-weight:700">#${myRank||'-'} <span class="muted" style="font-size:14px">of ${byRating.length}</span></div></div>
+    </div>
+  </div>
+  <div class="card"><h2>League highlights</h2>
+    <p>🏆 <b>Overall Champion (points):</b> ${champion? `${champion.name} — ${champion.rating} pts`:'-'}</p>
+    <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${mostPlayed.name} — ${mostPlayed.played} matches`:'-'}</p>
+  </div>
+  <div class="card"><h2>Overall leaderboard (by points)</h2>
+    <table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th></tr>
+    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${p.name}${p.id===me.id?' <span class="tag">you</span>':''}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td></tr>`).join('')}
+    </table>
+  </div>
+  <div class="card"><h2>Singles leaderboard</h2>
+    <table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table>
+  </div>
+  <div class="card"><h2>Doubles leaderboard</h2>
+    <table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table>
+  </div>`;
 }
 
 async function renderPlay(){
@@ -543,7 +621,14 @@ window.approveUser = async (id)=>{ await sb.from('sttl_players').update({is_appr
 window.deleteUser = async (id)=>{
   if(!confirm('Remove this player? This deletes their login too.')) return;
   const result = await callFn({action:'delete_user', user_id:id}, true);
-  if(result.error){ alert(result.error); return; }
+  if(result.error){
+    // Fall back to removing the profile row directly so the admin isn't
+    // stuck even if the edge function is unreachable/not deployed. Their
+    // login account may still exist in Supabase Auth in that case.
+    const {error} = await sb.from('sttl_players').delete().eq('id',id);
+    if(error){ alert('Could not remove player.\nFunction error: '+result.error+'\nDirect delete error: '+error.message); return; }
+    alert('Player profile removed. Their login could not be deleted automatically (function said: "'+result.error+'") — remove it manually in Supabase Authentication > Users if needed.');
+  }
   renderAdmin();
 };
 window.removeCC = async (id,name)=>{
