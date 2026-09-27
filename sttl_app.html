@@ -166,7 +166,8 @@ async function renderSignup(){
     }
     const uid = data.user?.id;
     if(uid){
-      await sb.from('sttl_players').insert({id:uid,name,age,community_center:cc,email});
+      const reg = await callFn({action:'register_profile', id:uid, name, email, age, community_center:cc}, false);
+      if(reg.error){ err.textContent = reg.error; return; }
     }
     session = data.session; 
     if(session){ await loadMeAndBoot(); }
@@ -174,14 +175,19 @@ async function renderSignup(){
   };
 }
 
-function renderForgot(){
+async function renderForgot(){
+  if(communities.length===0){
+    const {data} = await sb.from('sttl_communities').select('name').order('name');
+    communities = data || [];
+  }
   app.innerHTML = `
   <div class="card" style="max-width:440px;margin:30px auto">
     <h2>Forgot password</h2>
     <p class="muted">Enter your details to verify it's you — no email is sent, you'll set a new password right here.</p>
     <label>Email</label><input id="fp_email">
     <label>Age</label><input id="fp_age" type="number">
-    <label>Community Center</label><input id="fp_cc" placeholder="Exact name, e.g. Fernvale CC">
+    <label>Community Center</label>
+    <select id="fp_cc"><option value="">Select...</option>${communities.map(c=>`<option value="${c.name}">${c.name}</option>`).join('')}</select>
     <label>New password</label><input id="fp_pw" type="password">
     <div class="muted">Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character.</div>
     <div class="error" id="fp_err"></div>
