@@ -94,6 +94,9 @@ a.link:hover{color:var(--accent)}
 const SUPABASE_URL = "https://gdvbplbqehrtrgiwwcja.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkdmJwbGJxZWhydHJnaXd3Y2phIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMzExOTEsImV4cCI6MjEwNTgwNzE5MX0.w61-EWRvERE2QzXTKMifXp63Pqq5BFgMDKx99k3LPkY";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// A second client that never touches localStorage/session state, so admin
+// actions that call auth.signUp() for OTHER people never log the admin out.
+const sbAdmin = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {auth:{persistSession:false, autoRefreshToken:false}});
 const FUNCTIONS_URL = `${SUPABASE_URL}/functions/v1/admin-actions`;
 async function callFn(payload, needsAuth){
   try{
@@ -190,29 +193,42 @@ async function renderSignup(){
     const {data,error} = await sb.auth.signUp({email,password:pw});
     if(error){ err.textContent=error.message; return; }
     const alreadyExisted = !!(data.user && data.user.identities && data.user.identities.length===0);
-    let uid = data.user?.id;
+    const uid = data.user?.id;
     if(alreadyExisted){
       // Supabase says this email is registered. It may genuinely be an
       // existing account, OR an orphaned login from an earlier failed
-      // signup that never got its profile row — tell those apart.
+      // signup attempt that never got a profile row.
       const {data:existingProfile} = await sb.from('sttl_players').select('id').ilike('email',email).maybeSingle();
       if(existingProfile){
         err.textContent = 'An account with this email already exists. Please log in, or use Forgot password.';
-        return;
+      } else {
+        err.textContent = 'This email has a leftover login from an earlier attempt, with no profile attached. Please ask your admin to delete it in Supabase → Authentication → Users, then register again.';
       }
-      // Orphaned account — fall through and self-heal using the id Supabase gave us.
+      return;
     }
     if(!uid){ err.textContent='Could not create your account. Please try again.'; return; }
-    const reg = await callFn({action:'register_profile', id:uid, name, email, age, community_center:cc}, false);
-    if(reg.error){ err.textContent = reg.error; return; }
-    session = data.session;
-    if(!session){
-      // register_profile just confirmed this email server-side regardless of
-      // the project's "Confirm email" setting, so sign in now to get a session.
-      const {data:signInData, error:signInErr} = await sb.auth.signInWithPassword({email,password:pw});
-      if(signInErr){ err.textContent = signInErr.message; return; }
-      session = signInData.session;
+    if(data.session){
+      // We already have an active session (this is the normal case once
+      // "Confirm email" is turned OFF in Supabase) — insert the profile
+      // directly. No backend function needed.
+      const {error:insErr} = await sb.from('sttl_players').insert({id:uid,name,email,age,community_center:cc});
+      if(insErr){ err.textContent = insErr.message; return; }
+      session = data.session;
+      await loadMeAndBoot();
+      return;
     }
+    // No session yet — "Confirm email" is likely still ON in Supabase, so we
+    // have no auth.uid() to satisfy the insert policy. Try the optional
+    // admin-actions function as a bridge (it force-confirms + inserts using
+    // the service role). If that isn't deployed either, say so plainly.
+    const reg = await callFn({action:'register_profile', id:uid, name, email, age, community_center:cc}, false);
+    if(reg.error){
+      err.textContent = 'Your login was created, but registration could not finish automatically ('+reg.error+'). The fix: turn OFF "Confirm email" under Supabase → Authentication → Providers → Email — this lets new accounts finish registering and log in immediately with no backend function required.';
+      return;
+    }
+    const {data:signInData, error:signInErr} = await sb.auth.signInWithPassword({email,password:pw});
+    if(signInErr){ err.textContent = signInErr.message; return; }
+    session = signInData.session;
     await loadMeAndBoot();
   };
 }
@@ -251,9 +267,17 @@ async function renderForgot(){
     const {data:match} = await sb.from('sttl_players').select('id').ilike('email',email).eq('age',age).ilike('community_center',cc).maybeSingle();
     if(!match){ err.textContent='No account matches those details.'; return; }
     const result = await callFn({action:'verify_reset', email, age, community_center:cc, new_password}, false);
-    if(result.error){ err.textContent = result.error; return; }
+    if(!result.error){
+      err.style.color='var(--ok)';
+      err.textContent = 'Password updated. You can log in now.';
+      return;
+    }
+    // The instant-reset function isn't reachable — fall back to Supabase's
+    // built-in reset email so this never dead-ends.
+    const {error:rpErr} = await sb.auth.resetPasswordForEmail(email);
+    if(rpErr){ err.textContent = rpErr.message; return; }
     err.style.color='var(--ok)';
-    err.textContent = 'Password updated. You can log in now.';
+    err.textContent = 'Your details matched our records. Our instant-reset backend isn\'t reachable right now, so we emailed you a password reset link instead — check your inbox.';
   };
 }
 
@@ -630,8 +654,18 @@ async function renderAdmin(){
     const community_center=document.getElementById('nu_cc').value;
     const err=document.getElementById('nu_err');
     if(!name||!email||!pwOk(password)||!age){ err.textContent='Fill all fields; password needs upper/lower/number/special, 8+ chars.'; return; }
-    const result = await callFn({action:'create_user', name, email, password, age, community_center}, true);
-    if(result.error){ err.textContent=result.error; return; }
+    // Uses sbAdmin (a separate client instance) so this signUp never
+    // disturbs the admin's own logged-in session.
+    const {data:createData, error:createErr} = await sbAdmin.auth.signUp({email,password});
+    if(createErr){ err.textContent = createErr.message; return; }
+    const newId = createData.user?.id;
+    if(!newId){ err.textContent='Could not create the account. Please try again.'; return; }
+    const {error:insErr} = await sb.from('sttl_players').insert({id:newId,name,email,age,community_center,is_approved:true});
+    if(insErr){ err.textContent = insErr.message; return; }
+    if(!createData.session){
+      err.style.color='var(--ok)';
+      err.textContent = 'Player added. Note: they may need to confirm their email before they can log in — or turn OFF "Confirm email" in Supabase Auth settings so it works immediately.';
+    }
     renderAdmin();
   };
   document.getElementById('addCCBtn').onclick = async ()=>{
@@ -644,22 +678,10 @@ async function renderAdmin(){
 }
 window.approveUser = async (id)=>{ await sb.from('sttl_players').update({is_approved:true}).eq('id',id); renderAdmin(); };
 window.deleteUser = async (id)=>{
-  if(!confirm('Remove this player? This deletes their login too.')) return;
-  try{
-    const result = await callFn({action:'delete_user', user_id:id}, true);
-    if(result && result.ok){ renderAdmin(); return; }
-    // Function failed or was unreachable — fall back to removing the
-    // profile row directly so the admin isn't stuck.
-    const {error} = await sb.from('sttl_players').delete().eq('id',id);
-    if(error){
-      alert('Could not remove player.\n'+(result&&result.error?('Function said: '+result.error+'\n'):'')+'Direct delete said: '+error.message);
-      return;
-    }
-    alert('Player profile removed.'+(result&&result.error?(' Their login could not be deleted automatically ("'+result.error+'") — remove it manually in Supabase Authentication > Users if needed.'):''));
-    renderAdmin();
-  }catch(e){
-    alert('Unexpected error while removing player: '+(e && e.message ? e.message : e));
-  }
+  if(!confirm('Remove this player from the league?\n\nThis deletes their profile, ratings and match links. Their login will still exist in Supabase Auth — remove it there too if you want them fully gone.')) return;
+  const {error} = await sb.from('sttl_players').delete().eq('id',id);
+  if(error){ alert('Could not remove player: '+error.message); return; }
+  renderAdmin();
 };
 window.removeCC = async (id,name)=>{
   if(!confirm(`Remove ${name}?`)) return;
