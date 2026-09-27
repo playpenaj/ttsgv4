@@ -60,6 +60,21 @@ Deno.serve(async (req) => {
       return cors({ ok: true });
     }
 
+    // ---- Public: create the player profile row right after signUp.
+    // Uses the service role so it works even before the user's email is
+    // confirmed (i.e. before they have an active session / auth.uid()).
+    if (action === "register_profile") {
+      const { id, name, email, age, community_center } = body;
+      if (!id || !name || !email || !age || !community_center) {
+        return cors({ error: "Missing fields." }, 400);
+      }
+      const { data: userCheck, error: uErr } = await admin.auth.admin.getUserById(id);
+      if (uErr || !userCheck?.user) return cors({ error: "Invalid user." }, 400);
+      const { error: iErr } = await admin.from("sttl_players").upsert({ id, name, email, age, community_center });
+      if (iErr) return cors({ error: iErr.message }, 400);
+      return cors({ ok: true });
+    }
+
     // ---- Admin: add a new user directly ----
     if (action === "create_user") {
       const caller = await requireAdmin(req);
