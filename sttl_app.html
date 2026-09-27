@@ -81,10 +81,7 @@ a.link:hover{color:var(--accent)}
 <nav id="nav" class="hidden">
   <button data-tab="dashboard" class="navbtn">Dashboard</button>
   <button data-tab="play" class="navbtn">Play</button>
-  <button data-tab="challenges" class="navbtn">Challenges</button>
-  <button data-tab="matches" class="navbtn">Matches</button>
-  <button data-tab="shop" class="navbtn">Shop</button>
-  <button data-tab="info" class="navbtn">Info</button>
+  <button data-tab="info" class="navbtn">Info &amp; Shop</button>
   <button data-tab="admin" id="adminNavBtn" class="navbtn hidden">Admin</button>
   <button id="logoutBtn" class="navbtn" style="margin-left:auto">Logout</button>
 </nav>
@@ -99,10 +96,22 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const FUNCTIONS_URL = `${SUPABASE_URL}/functions/v1/admin-actions`;
 async function callFn(payload, needsAuth){
-  const headers = {'Content-Type':'application/json'};
-  if(needsAuth){ const {data:{session:s}} = await sb.auth.getSession(); headers['Authorization'] = 'Bearer '+s.access_token; }
-  const res = await fetch(FUNCTIONS_URL, {method:'POST', headers, body:JSON.stringify(payload)});
-  return res.json();
+  try{
+    const headers = {'Content-Type':'application/json'};
+    if(needsAuth){
+      const {data:{session:s}} = await sb.auth.getSession();
+      if(!s){ return {error:'You are not logged in.'}; }
+      headers['Authorization'] = 'Bearer '+s.access_token;
+    }
+    const res = await fetch(FUNCTIONS_URL, {method:'POST', headers, body:JSON.stringify(payload)});
+    let json=null;
+    try{ json = await res.json(); }catch(e){ /* fall through, handled below */ }
+    if(!json){ return {error:`admin-actions function returned an unexpected response (HTTP ${res.status}). Is it deployed?`}; }
+    if(!res.ok && !json.error){ return {error:`admin-actions function error (HTTP ${res.status}).`}; }
+    return json;
+  }catch(e){
+    return {error:'Could not reach the admin-actions function: '+(e && e.message ? e.message : e)};
+  }
 }
 
 let session=null, me=null, activeTab='play', players=[], communities=[];
@@ -180,29 +189,31 @@ async function renderSignup(){
     if(!pwOk(pw)){ err.textContent='Password does not meet the requirements.'; return; }
     const {data,error} = await sb.auth.signUp({email,password:pw});
     if(error){ err.textContent=error.message; return; }
-    if(data.user && data.user.identities && data.user.identities.length===0){
-      // Supabase says this email is already registered. But it may just be a
-      // stuck/orphaned account from an earlier failed signup that never got
-      // its profile row — check for that and self-heal instead of blocking.
+    const alreadyExisted = !!(data.user && data.user.identities && data.user.identities.length===0);
+    let uid = data.user?.id;
+    if(alreadyExisted){
+      // Supabase says this email is registered. It may genuinely be an
+      // existing account, OR an orphaned login from an earlier failed
+      // signup that never got its profile row — tell those apart.
       const {data:existingProfile} = await sb.from('sttl_players').select('id').ilike('email',email).maybeSingle();
-      if(!existingProfile && data.user.id){
-        const reg = await callFn({action:'register_profile', id:data.user.id, name, email, age, community_center:cc}, false);
-        if(!reg.error){
-          const {data:signInData, error:signInErr} = await sb.auth.signInWithPassword({email,password:pw});
-          if(!signInErr){ session = signInData.session; await loadMeAndBoot(); return; }
-        }
+      if(existingProfile){
+        err.textContent = 'An account with this email already exists. Please log in, or use Forgot password.';
+        return;
       }
-      err.textContent = 'An account with this email already exists. Please log in, or use Forgot password.';
-      return;
+      // Orphaned account — fall through and self-heal using the id Supabase gave us.
     }
-    const uid = data.user?.id;
-    if(uid){
-      const reg = await callFn({action:'register_profile', id:uid, name, email, age, community_center:cc}, false);
-      if(reg.error){ err.textContent = reg.error; return; }
+    if(!uid){ err.textContent='Could not create your account. Please try again.'; return; }
+    const reg = await callFn({action:'register_profile', id:uid, name, email, age, community_center:cc}, false);
+    if(reg.error){ err.textContent = reg.error; return; }
+    session = data.session;
+    if(!session){
+      // register_profile just confirmed this email server-side regardless of
+      // the project's "Confirm email" setting, so sign in now to get a session.
+      const {data:signInData, error:signInErr} = await sb.auth.signInWithPassword({email,password:pw});
+      if(signInErr){ err.textContent = signInErr.message; return; }
+      session = signInData.session;
     }
-    session = data.session; 
-    if(session){ await loadMeAndBoot(); }
-    else { app.innerHTML = `<div class="card" style="max-width:420px;margin:30px auto"><h2>Registered</h2><p>Your account was created. If login doesn't work immediately, ask your admin to confirm "Confirm email" is turned off in Supabase Auth settings, then log in below.</p><button class="btn" id="bk">Back to login</button></div>`; document.getElementById('bk').onclick=renderLogin; }
+    await loadMeAndBoot();
   };
 }
 
@@ -310,9 +321,6 @@ function renderTab(){
   document.querySelector('[data-tab="play"]').disabled = !canPlay(me);
   if(activeTab==='dashboard') return renderDashboard();
   if(activeTab==='play') return renderPlay();
-  if(activeTab==='challenges') return renderChallenges();
-  if(activeTab==='matches') return renderMatches();
-  if(activeTab==='shop') return renderShop();
   if(activeTab==='info') return renderInfo();
   if(activeTab==='admin') return renderAdminGate();
 }
@@ -395,7 +403,30 @@ async function renderPlay(){
     return;
   }
   await refreshPlayers();
-  app.innerHTML = `<div class="card"><h2>Play — Challenge someone</h2>
+  const {data:incoming} = await sb.from('sttl_challenges').select('*').eq('opponent_id',me.id).eq('status','pending');
+  const {data:outgoing} = await sb.from('sttl_challenges').select('*').eq('challenger_id',me.id).eq('status','pending');
+  const {data:accepted} = await sb.from('sttl_challenges').select('*').or(`challenger_id.eq.${me.id},opponent_id.eq.${me.id}`).eq('status','accepted');
+  const ids = (accepted||[]).map(c=>c.id);
+  let results=[];
+  if(ids.length){ const {data} = await sb.from('sttl_match_results').select('*').in('challenge_id',ids); results=data||[]; }
+
+  const matchRows = await Promise.all((accepted||[]).map(async c=>{
+    const res = results.find(r=>r.challenge_id===c.id);
+    let action='';
+    if(!res){
+      action = `<button class="btn" onclick="openScoreEntry('${c.id}')">Enter winner / score</button>`;
+    } else if(!res.acknowledged && res.entered_by!==me.id){
+      action = `<button class="btn" onclick="ackScore('${res.id}')">Accept result</button> <span class="muted">(winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)})</span>`;
+    } else if(!res.acknowledged){
+      action = `<span class="badge muted">Waiting for opponent to accept</span>`;
+    } else {
+      action = `<span class="badge ok">Points recorded — winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)}</span>`;
+    }
+    return `<tr><td>${await nameOf(c.challenger_id)}</td><td>${await nameOf(c.opponent_id)}</td><td>${c.match_type}</td><td>${action}</td></tr>`;
+  }));
+
+  app.innerHTML = `
+  <div class="card"><h2>Challenge someone</h2>
     <label>Match type</label>
     <select id="mtype"><option value="singles">Singles</option><option value="doubles">Doubles</option></select>
     <label>Opponent</label>
@@ -406,6 +437,21 @@ async function renderPlay(){
     </div>
     <button class="btn" id="sendChallenge" style="margin-top:12px">Send Challenge</button>
     <div class="error" id="ch_err"></div>
+  </div>
+  <div class="card"><h2>Incoming challenges</h2>
+    ${(incoming&&incoming.length)? (await Promise.all(incoming.map(async c=>`
+      <div class="row" style="align-items:center;border-bottom:1px solid var(--line);padding:8px 0">
+        <div>${await nameOf(c.challenger_id)} challenged you (${c.match_type})</div>
+        <div><button class="btn" onclick="respondChallenge('${c.id}','accepted')">Accept</button>
+        <button class="btn ghost" onclick="respondChallenge('${c.id}','declined')">Decline</button></div>
+      </div>`))).join('') : '<p class="muted">None right now.</p>'}
+  </div>
+  <div class="card"><h2>Outgoing challenges (pending)</h2>
+    ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})</div>`))).join(''):'<p class="muted">None right now.</p>'}
+  </div>
+  <div class="card"><h2>Your matches</h2>
+    <p class="muted">Enter the score to submit a winner — your opponent must accept it for the points to reflect.</p>
+    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=4 class="muted">No accepted matches yet.</td></tr>'}</table></div>
   </div>
   <div class="card"><h2>Your status</h2>
     <p><span class="badge ${me.is_subscribed?'ok':'warn'}">${me.is_subscribed?'Subscribed':'Not subscribed'}</span>
@@ -425,64 +471,23 @@ async function renderPlay(){
     }
     const {error} = await sb.from('sttl_challenges').insert(payload);
     if(error) document.getElementById('ch_err').textContent = error.message;
-    else { document.getElementById('ch_err').style.color='var(--ok)'; document.getElementById('ch_err').textContent='Challenge sent!'; }
+    else { document.getElementById('ch_err').style.color='var(--ok)'; document.getElementById('ch_err').textContent='Challenge sent!'; renderPlay(); }
   };
 }
 
 async function nameOf(id){ const p = players.find(x=>x.id===id) || (id===me.id?me:null); return p? p.name : id?.slice(0,6); }
 
-async function renderChallenges(){
-  await refreshPlayers();
-  const {data:incoming} = await sb.from('sttl_challenges').select('*').eq('opponent_id',me.id).eq('status','pending');
-  const {data:outgoing} = await sb.from('sttl_challenges').select('*').eq('challenger_id',me.id).eq('status','pending');
-  app.innerHTML = `<div class="card"><h2>Incoming challenges</h2>
-    ${(incoming&&incoming.length)? (await Promise.all(incoming.map(async c=>`
-      <div class="row" style="align-items:center;border-bottom:1px solid var(--line);padding:8px 0">
-        <div>${await nameOf(c.challenger_id)} challenged you (${c.match_type})</div>
-        <div><button class="btn" onclick="respondChallenge('${c.id}','accepted')">Accept</button>
-        <button class="btn ghost" onclick="respondChallenge('${c.id}','declined')">Decline</button></div>
-      </div>`))).join('') : '<p class="muted">None right now.</p>'}
-  </div>
-  <div class="card"><h2>Outgoing challenges (pending)</h2>
-    ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})</div>`))).join(''):'<p class="muted">None right now.</p>'}
-  </div>`;
-}
 window.respondChallenge = async (id,status)=>{
   await sb.from('sttl_challenges').update({status}).eq('id',id);
-  renderChallenges();
+  renderPlay();
 };
 
-async function renderMatches(){
-  await refreshPlayers();
-  const {data:accepted} = await sb.from('sttl_challenges').select('*').or(`challenger_id.eq.${me.id},opponent_id.eq.${me.id}`).eq('status','accepted');
-  const ids = (accepted||[]).map(c=>c.id);
-  let results=[];
-  if(ids.length){ const {data} = await sb.from('sttl_match_results').select('*').in('challenge_id',ids); results=data||[]; }
-  const rows = await Promise.all((accepted||[]).map(async c=>{
-    const res = results.find(r=>r.challenge_id===c.id);
-    const iAmChallenger = c.challenger_id===me.id;
-    let action='';
-    if(!res){
-      action = `<button class="btn" onclick="openScoreEntry('${c.id}')">Enter score</button>`;
-    } else if(!res.acknowledged && res.entered_by!==me.id){
-      action = `<button class="btn" onclick="ackScore('${res.id}')">Acknowledge score</button> <span class="muted">${JSON.stringify(res.sets)}</span>`;
-    } else if(!res.acknowledged){
-      action = `<span class="badge muted">Waiting for opponent to acknowledge</span>`;
-    } else {
-      action = `<span class="badge ok">Recorded — winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)}</span>`;
-    }
-    return `<tr><td>${await nameOf(c.challenger_id)}</td><td>${await nameOf(c.opponent_id)}</td><td>${c.match_type}</td><td>${action}</td></tr>`;
-  }));
-  app.innerHTML = `<div class="card"><h2>Your matches</h2>
-    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>Status</th></tr>${rows.join('')||'<tr><td colspan=4 class="muted">No accepted matches yet.</td></tr>'}</table></div>
-  </div>`;
-}
 window.openScoreEntry = (challengeId)=>{
-  modal(`<h2>Enter score</h2>
-    <p class="muted">Best of 5, each set to 11 (win by 2). Enter each side's points.</p>
+  modal(`<h2>Enter winner / score</h2>
+    <p class="muted">Best of 5, each set to 11 (win by 2). Enter each side's points — the winner is worked out automatically.</p>
     <div id="sets"></div>
     <button class="btn ghost" onclick="addSetRow()">+ Add set</button>
-    <div class="row" style="margin-top:12px"><button class="btn" onclick="submitScore('${challengeId}')">Submit score</button><button class="btn ghost" onclick="closeModal()">Cancel</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn" onclick="submitScore('${challengeId}')">Submit</button><button class="btn ghost" onclick="closeModal()">Cancel</button></div>
     <div class="error" id="sc_err"></div>`);
   addSetRow(); addSetRow(); addSetRow();
 };
@@ -500,7 +505,7 @@ window.submitScore = async (challengeId)=>{
   const {data:c} = await sb.from('sttl_challenges').select('*').eq('id',challengeId).single();
   const winner_side = winsA>winsB ? (c.challenger_id===me.id?'challenger':'opponent') : (c.challenger_id===me.id?'opponent':'challenger');
   await sb.from('sttl_match_results').insert({challenge_id:challengeId, sets, winner_side, entered_by:me.id});
-  closeModal(); renderMatches();
+  closeModal(); renderPlay();
 };
 window.ackScore = async (resultId)=>{
   const {data:res} = await sb.from('sttl_match_results').select('*').eq('id',resultId).single();
@@ -512,7 +517,7 @@ window.ackScore = async (resultId)=>{
   const {data:l} = await sb.from('sttl_players').select('rating').eq('id',loserId).single();
   await sb.from('sttl_players').update({rating:(w?.rating||1000)+15, last_played_on:new Date().toISOString().slice(0,10)}).eq('id',winnerId);
   await sb.from('sttl_players').update({rating:Math.max(100,(l?.rating||1000)-10), last_played_on:new Date().toISOString().slice(0,10)}).eq('id',loserId);
-  renderMatches();
+  renderPlay();
 };
 
 function ratingTier(r){
@@ -520,32 +525,28 @@ function ratingTier(r){
   if(r>=1150) return {name:'Silver', pct:10};
   return {name:'Bronze', pct:5};
 }
-function renderShop(){
+
+function renderInfo(){
   const t=ratingTier(me.rating);
-  app.innerHTML = `<div class="card"><h2>Sin Ten Sports Shop</h2>
+  app.innerHTML = `<div class="card"><h2>How STTL works</h2>
+    <p><b>1. Sign up</b> with your name, email, password, age and community center. You can log in right away, but you'll need admin approval before your <i>Play</i> tab unlocks.</p>
+    <p><b>2. Free trial</b> — your first month is free from your signup date. After that, an active subscription (S$2/month) is needed to keep playing.</p>
+    <p><b>3. Challenge</b> any approved, paying player to singles or doubles from the Play tab.</p>
+    <p><b>4. Accept</b> — your opponent must accept before a match counts.</p>
+    <p><b>5. Score entry</b> — either side submits the score, the other side must accept it before the points reflect.</p>
+    <h2>ITTF scoring, simply</h2>
+    <p>A match is usually <b>best of 5 sets</b>. Each set is played to <b>11 points</b>, but you must win by at least <b>2 points</b> (e.g. 11–9). If it's 10–10, play continues until one side is 2 points ahead (e.g. 14–12).</p>
+    <p class="muted">Example: Set scores 11–7, 9–11, 11–6, 11–8 → challenger wins 3 sets to 1, so the challenger wins the match.</p>
+    <h2>Inactivity check-in</h2>
+    <p>If you haven't played for 10 days in a row, we'll ask what's going on next time you log in, so admins can support you.</p>
+  </div>
+  <div class="card"><h2>Sin Ten Sports Shop</h2>
     <p>Your rating: <b>${me.rating}</b> → Tier: <span class="tag">${t.name}</span></p>
     <p>You get <b>${t.pct}% off</b> at <a class="link" onclick="window.open('https://www.sintensports.com.sg/','_blank')">Sin Ten Sports Trading</a>. Show your profile at checkout.</p>
     <div class="table-scroll"><table><tr><th>Tier</th><th>Rating</th><th>Discount</th></tr>
     <tr><td>Bronze</td><td>&lt;1150</td><td>5%</td></tr>
     <tr><td>Silver</td><td>1150–1299</td><td>10%</td></tr>
     <tr><td>Gold</td><td>1300+</td><td>15%</td></tr></table></div>
-  </div>`;
-}
-
-function renderInfo(){
-  app.innerHTML = `<div class="card"><h2>How STTL works</h2>
-    <p><b>1. Sign up</b> with your name, email, password, age and community center. You can log in right away, but you'll need admin approval before your <i>Play</i> tab unlocks.</p>
-    <p><b>2. Free trial</b> — your first month is free from your signup date. After that, an active subscription (S$2/month) is needed to keep playing.</p>
-    <p><b>3. Challenge</b> any approved, paying player to singles or doubles from the Play tab.</p>
-    <p><b>4. Accept</b> — your opponent must accept before a match counts.</p>
-    <p><b>5. Score entry</b> — either side keys in the set scores, the other side must acknowledge before it's recorded.</p>
-    <h2>ITTF scoring, simply</h2>
-    <p>A match is usually <b>best of 5 sets</b>. Each set is played to <b>11 points</b>, but you must win by at least <b>2 points</b> (e.g. 11–9). If it's 10–10, play continues until one side is 2 points ahead (e.g. 14–12).</p>
-    <p class="muted">Example: Set scores 11–7, 9–11, 11–6, 11–8 → challenger wins 3 sets to 1, so the challenger wins the match.</p>
-    <h2>Inactivity check-in</h2>
-    <p>If you haven't played for 10 days in a row, we'll ask what's going on next time you log in, so admins can support you.</p>
-    <h2>Rewards</h2>
-    <p>Your rating decides your discount tier at Sin Ten Sports Trading — keep playing to climb tiers.</p>
   </div>`;
 }
 
@@ -644,16 +645,21 @@ async function renderAdmin(){
 window.approveUser = async (id)=>{ await sb.from('sttl_players').update({is_approved:true}).eq('id',id); renderAdmin(); };
 window.deleteUser = async (id)=>{
   if(!confirm('Remove this player? This deletes their login too.')) return;
-  const result = await callFn({action:'delete_user', user_id:id}, true);
-  if(result.error){
-    // Fall back to removing the profile row directly so the admin isn't
-    // stuck even if the edge function is unreachable/not deployed. Their
-    // login account may still exist in Supabase Auth in that case.
+  try{
+    const result = await callFn({action:'delete_user', user_id:id}, true);
+    if(result && result.ok){ renderAdmin(); return; }
+    // Function failed or was unreachable — fall back to removing the
+    // profile row directly so the admin isn't stuck.
     const {error} = await sb.from('sttl_players').delete().eq('id',id);
-    if(error){ alert('Could not remove player.\nFunction error: '+result.error+'\nDirect delete error: '+error.message); return; }
-    alert('Player profile removed. Their login could not be deleted automatically (function said: "'+result.error+'") — remove it manually in Supabase Authentication > Users if needed.');
+    if(error){
+      alert('Could not remove player.\n'+(result&&result.error?('Function said: '+result.error+'\n'):'')+'Direct delete said: '+error.message);
+      return;
+    }
+    alert('Player profile removed.'+(result&&result.error?(' Their login could not be deleted automatically ("'+result.error+'") — remove it manually in Supabase Authentication > Users if needed.'):''));
+    renderAdmin();
+  }catch(e){
+    alert('Unexpected error while removing player: '+(e && e.message ? e.message : e));
   }
-  renderAdmin();
 };
 window.removeCC = async (id,name)=>{
   if(!confirm(`Remove ${name}?`)) return;
