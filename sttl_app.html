@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Singapore Table Tennis League</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --navy:#0b2545; --navy2:#13355e; --accent:#e8622c; --accent2:#ff7d3b;
+  --bg:#f4f6f9; --card:#ffffff; --text:#1c2733; --muted:#5b6b7c; --line:#e3e8ee;
+  --ok:#1e8e5a; --warn:#c0392b;
+  font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);}
+header{background:linear-gradient(120deg,var(--navy),var(--navy2));color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+header .brand{display:flex;flex-direction:column}
+header .brand b{font-size:20px}
+header .brand small{color:#cfe0f5;opacity:.85}
+header .sponsor{font-size:12px;color:#cfe0f5}
+header .sponsor a{color:#ffd9c4}
+nav{display:flex;gap:6px;background:#fff;border-bottom:1px solid var(--line);padding:0 14px;overflow-x:auto}
+nav button{background:none;border:none;padding:12px 16px;font-size:14px;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+nav button.active{color:var(--navy);border-bottom-color:var(--accent);font-weight:600}
+nav button:disabled{opacity:.4;cursor:not-allowed}
+main{max-width:900px;margin:0 auto;padding:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px;box-shadow:0 1px 3px rgba(20,30,50,.05)}
+h2{margin-top:0;color:var(--navy)}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:14px}
+button.btn{background:var(--accent);color:#fff;border:none;padding:10px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px}
+button.btn:hover{background:var(--accent2)}
+button.btn.secondary{background:var(--navy)}
+button.btn.ghost{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+button.btn:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1;min-width:160px}
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600}
+.badge.ok{background:#e3f6ec;color:var(--ok)}
+.badge.warn{background:#fdecec;color:var(--warn)}
+.badge.muted{background:#eef1f5;color:var(--muted)}
+.muted{color:var(--muted);font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left}
+.overlay{position:fixed;inset:0;background:rgba(10,20,35,.55);display:flex;align-items:center;justify-content:center;z-index:50}
+.modal{background:#fff;border-radius:10px;padding:22px;max-width:420px;width:92%}
+.error{color:var(--warn);font-size:13px;margin-top:6px}
+.tag{display:inline-block;background:#eef2f8;color:var(--navy);padding:3px 8px;border-radius:6px;font-size:12px;margin-right:4px}
+.hidden{display:none !important}
+footer{text-align:center;padding:20px;color:var(--muted);font-size:12px}
+a.link{color:var(--navy);cursor:pointer;text-decoration:underline;font-size:13px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><b>🏓 Singapore Table Tennis League</b><small>Play. Challenge. Climb the ranks.</small></div>
+  <div class="sponsor">Sponsored by <a href="https://www.sintensports.com.sg/" target="_blank">Sin Ten Sports Trading</a></div>
+  <div id="whoBar" class="sponsor"></div>
+</header>
+
+<nav id="nav" class="hidden">
+  <button data-tab="play" class="navbtn">Play</button>
+  <button data-tab="challenges" class="navbtn">Challenges</button>
+  <button data-tab="matches" class="navbtn">Matches</button>
+  <button data-tab="shop" class="navbtn">Shop</button>
+  <button data-tab="info" class="navbtn">Info</button>
+  <button data-tab="admin" id="adminNavBtn" class="navbtn hidden">Admin</button>
+  <button id="logoutBtn" class="navbtn" style="margin-left:auto">Logout</button>
+</nav>
+
+<main id="app"></main>
+<div id="modalRoot"></div>
+<footer>STTL Platform · demo build · Sponsored by Sin Ten Sports Trading</footer>
+
+<script>
+const SUPABASE_URL = "https://gdvbplbqehrtrgiwwcja.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkdmJwbGJxZWhydHJnaXd3Y2phIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMzExOTEsImV4cCI6MjEwNTgwNzE5MX0.w61-EWRvERE2QzXTKMifXp63Pqq5BFgMDKx99k3LPkY";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const FUNCTIONS_URL = `${SUPABASE_URL}/functions/v1/admin-actions`;
+async function callFn(payload, needsAuth){
+  const headers = {'Content-Type':'application/json'};
+  if(needsAuth){ const {data:{session:s}} = await sb.auth.getSession(); headers['Authorization'] = 'Bearer '+s.access_token; }
+  const res = await fetch(FUNCTIONS_URL, {method:'POST', headers, body:JSON.stringify(payload)});
+  return res.json();
+}
+
+let session=null, me=null, activeTab='play', players=[], communities=[];
+
+const app=document.getElementById('app');
+const modalRoot=document.getElementById('modalRoot');
+const nav=document.getElementById('nav');
+
+function pwOk(p){return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(p);}
+function daysSince(d){ if(!d) return 9999; return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
+function fmtDate(d){return d? new Date(d).toLocaleDateString():'-';}
+function isTrialActive(p){return new Date(p.trial_ends_on) >= new Date(new Date().toDateString());}
+function canPlay(p){return p.is_approved && (isTrialActive(p) || p.is_subscribed);}
+
+function modal(html){ modalRoot.innerHTML = `<div class="overlay"><div class="modal">${html}</div></div>`; }
+function closeModal(){ modalRoot.innerHTML=''; }
+
+// ---------- AUTH VIEWS ----------
+function renderLogin(){
+  nav.classList.add('hidden');
+  app.innerHTML = `
+  <div class="card" style="max-width:420px;margin:30px auto">
+    <h2>Login</h2>
+    <label>Email</label><input id="li_email" type="email">
+    <label>Password</label><input id="li_pw" type="password">
+    <div class="error" id="li_err"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="li_go">Login</button>
+      <button class="btn ghost" id="li_signup">Create account</button>
+    </div>
+    <p><a class="link" id="li_forgot">Forgot password?</a></p>
+  </div>`;
+  document.getElementById('li_go').onclick = async ()=>{
+    const email=document.getElementById('li_email').value.trim();
+    const password=document.getElementById('li_pw').value;
+    const {data,error} = await sb.auth.signInWithPassword({email,password});
+    if(error){ document.getElementById('li_err').textContent = error.message; return; }
+    session = data.session; await loadMeAndBoot();
+  };
+  document.getElementById('li_signup').onclick = renderSignup;
+  document.getElementById('li_forgot').onclick = renderForgot;
+}
+
+async function renderSignup(){
+  if(communities.length===0){
+    const {data} = await sb.from('sttl_communities').select('name').order('name');
+    communities = data || [];
+  }
+  app.innerHTML = `
+  <div class="card" style="max-width:460px;margin:30px auto">
+    <h2>Create account</h2>
+    <label>Full name</label><input id="su_name">
+    <label>Email</label><input id="su_email" type="email">
+    <label>Password</label><input id="su_pw" type="password">
+    <div class="muted">Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character.</div>
+    <label>Age</label><input id="su_age" type="number" min="10" max="100">
+    <label>Community Center</label>
+    <select id="su_cc">${communities.map(c=>`<option value="${c.name}">${c.name}</option>`).join('')}</select>
+    <div class="error" id="su_err"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="su_go">Register</button>
+      <button class="btn ghost" id="su_back">Back to login</button>
+    </div>
+  </div>`;
+  document.getElementById('su_back').onclick = renderLogin;
+  document.getElementById('su_go').onclick = async ()=>{
+    const name=document.getElementById('su_name').value.trim();
+    const email=document.getElementById('su_email').value.trim();
+    const pw=document.getElementById('su_pw').value;
+    const age=parseInt(document.getElementById('su_age').value,10);
+    const cc=document.getElementById('su_cc').value;
+    const err=document.getElementById('su_err');
+    if(!name||!email||!age||!cc){ err.textContent='Please fill all fields.'; return; }
+    if(!pwOk(pw)){ err.textContent='Password does not meet the requirements.'; return; }
+    const {data,error} = await sb.auth.signUp({email,password:pw});
+    if(error){ err.textContent=error.message; return; }
+    if(data.user && data.user.identities && data.user.identities.length===0){
+      err.textContent = 'An account with this email already exists. Please log in, or use Forgot password.';
+      return;
+    }
+    const uid = data.user?.id;
+    if(uid){
+      await sb.from('sttl_players').insert({id:uid,name,age,community_center:cc,email});
+    }
+    session = data.session; 
+    if(session){ await loadMeAndBoot(); }
+    else { app.innerHTML = `<div class="card" style="max-width:420px;margin:30px auto"><h2>Registered</h2><p>Your account was created. If login doesn't work immediately, ask your admin to confirm "Confirm email" is turned off in Supabase Auth settings, then log in below.</p><button class="btn" id="bk">Back to login</button></div>`; document.getElementById('bk').onclick=renderLogin; }
+  };
+}
+
+function renderForgot(){
+  app.innerHTML = `
+  <div class="card" style="max-width:440px;margin:30px auto">
+    <h2>Forgot password</h2>
+    <p class="muted">Enter your details to verify it's you — no email is sent, you'll set a new password right here.</p>
+    <label>Email</label><input id="fp_email">
+    <label>Age</label><input id="fp_age" type="number">
+    <label>Community Center</label><input id="fp_cc" placeholder="Exact name, e.g. Fernvale CC">
+    <label>New password</label><input id="fp_pw" type="password">
+    <div class="muted">Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character.</div>
+    <div class="error" id="fp_err"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="fp_go">Verify &amp; Set New Password</button>
+      <button class="btn ghost" id="fp_back">Back</button>
+    </div>
+  </div>`;
+  document.getElementById('fp_back').onclick = renderLogin;
+  document.getElementById('fp_go').onclick = async ()=>{
+    const email=document.getElementById('fp_email').value.trim();
+    const age=parseInt(document.getElementById('fp_age').value,10);
+    const cc=document.getElementById('fp_cc').value.trim();
+    const new_password=document.getElementById('fp_pw').value;
+    const err=document.getElementById('fp_err');
+    err.style.color='var(--warn)';
+    if(!email||!age||!cc){ err.textContent='Please fill all fields.'; return; }
+    if(!pwOk(new_password)){ err.textContent='Password does not meet the requirements.'; return; }
+    const {data:match} = await sb.from('sttl_players').select('id').ilike('email',email).eq('age',age).ilike('community_center',cc).maybeSingle();
+    if(!match){ err.textContent='No account matches those details.'; return; }
+    const result = await callFn({action:'verify_reset', email, age, community_center:cc, new_password}, false);
+    if(result.error){ err.textContent = result.error; return; }
+    err.style.color='var(--ok)';
+    err.textContent = 'Password updated. You can log in now.';
+  };
+}
+
+// ---------- BOOT ----------
+async function loadMeAndBoot(){
+  const {data:{user}} = await sb.auth.getUser();
+  if(!user){ renderLogin(); return; }
+  let {data:p} = await sb.from('sttl_players').select('*').eq('id',user.id).maybeSingle();
+  if(!p){ renderLogin(); return; }
+  me = {...p, email:user.email};
+  nav.classList.remove('hidden');
+  document.getElementById('whoBar').textContent = `${me.name} · ${me.community_center}`;
+  document.getElementById('adminNavBtn').classList.toggle('hidden', !me.is_admin);
+  document.querySelectorAll('.navbtn[data-tab]').forEach(b=>{
+    b.onclick=()=>{ if(b.dataset.tab==='play' && !canPlay(me)) return; activeTab=b.dataset.tab; renderTab(); };
+  });
+  document.getElementById('logoutBtn').onclick = async ()=>{ await sb.auth.signOut(); location.reload(); };
+  await checkLoginPopups();
+  activeTab='play'; renderTab();
+}
+
+async function checkLoginPopups(){
+  // inactivity check
+  if(me.last_played_on && daysSince(me.last_played_on) >= 10){
+    modal(`
+      <h2>We missed you! 👋</h2>
+      <p>You haven't played in ${daysSince(me.last_played_on)} days. Let us know why so an admin can follow up.</p>
+      <textarea id="reason" rows="3" placeholder="e.g. travelling, injury, busy at work..."></textarea>
+      <div class="row" style="margin-top:12px"><button class="btn" id="sendReason">Submit</button></div>
+    `);
+    document.getElementById('sendReason').onclick = async ()=>{
+      const reason=document.getElementById('reason').value.trim();
+      if(reason) await sb.from('sttl_inactivity_notes').insert({player_id:me.id, reason});
+      closeModal(); showMatchPopup();
+    };
+    return;
+  }
+  showMatchPopup();
+}
+async function showMatchPopup(){
+  const {data:ch} = await sb.from('sttl_challenges').select('*').or(`challenger_id.eq.${me.id},opponent_id.eq.${me.id}`).eq('status','accepted');
+  const {data:pend} = await sb.from('sttl_challenges').select('*').eq('opponent_id',me.id).eq('status','pending');
+  if(me.is_admin){
+    const {data:newUsers} = await sb.from('sttl_players').select('id').eq('is_approved',false);
+    if(newUsers && newUsers.length){
+      modal(`<h2>Admin: pending approvals</h2><p>${newUsers.length} new user(s) awaiting approval.</p><button class="btn" id="okAd">Go to Admin</button>`);
+      document.getElementById('okAd').onclick=()=>{closeModal(); activeTab='admin'; renderTab();};
+      return;
+    }
+  }
+  if((ch&&ch.length) || (pend&&pend.length)){
+    modal(`<h2>Welcome back!</h2>
+      <p>${ch?ch.length:0} upcoming accepted match(es), ${pend?pend.length:0} pending challenge(s) waiting on you.</p>
+      <button class="btn" id="okM">Got it</button>`);
+    document.getElementById('okM').onclick=closeModal;
+  }
+}
+
+// ---------- TAB ROUTER ----------
+function renderTab(){
+  document.querySelectorAll('.navbtn[data-tab]').forEach(b=>b.classList.toggle('active', b.dataset.tab===activeTab));
+  document.querySelector('[data-tab="play"]').disabled = !canPlay(me);
+  if(activeTab==='play') return renderPlay();
+  if(activeTab==='challenges') return renderChallenges();
+  if(activeTab==='matches') return renderMatches();
+  if(activeTab==='shop') return renderShop();
+  if(activeTab==='info') return renderInfo();
+  if(activeTab==='admin') return renderAdminGate();
+}
+
+async function refreshPlayers(){
+  const {data} = await sb.from('sttl_players').select('id,name,community_center,is_approved,is_subscribed,rating').eq('is_approved',true);
+  players = (data||[]).filter(p=>p.id!==me.id);
+}
+
+async function renderPlay(){
+  if(!canPlay(me)){
+    app.innerHTML = `<div class="card"><h2>Play</h2>
+      <p class="muted">${!me.is_approved ? 'Your account is pending admin approval. Once approved you can start challenging players.' : 'Your free month and subscription have both ended. Please subscribe ($2/month) to keep playing.'}</p></div>`;
+    return;
+  }
+  await refreshPlayers();
+  app.innerHTML = `<div class="card"><h2>Play — Challenge someone</h2>
+    <label>Match type</label>
+    <select id="mtype"><option value="singles">Singles</option><option value="doubles">Doubles</option></select>
+    <label>Opponent</label>
+    <select id="opp">${players.map(p=>`<option value="${p.id}">${p.name} (${p.community_center}) · rating ${p.rating}</option>`).join('')}</select>
+    <div id="partnerBox" class="hidden">
+      <label>Your partner</label><select id="myPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
+      <label>Opponent's partner</label><select id="oppPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
+    </div>
+    <button class="btn" id="sendChallenge" style="margin-top:12px">Send Challenge</button>
+    <div class="error" id="ch_err"></div>
+  </div>
+  <div class="card"><h2>Your status</h2>
+    <p><span class="badge ${me.is_subscribed?'ok':'warn'}">${me.is_subscribed?'Subscribed':'Not subscribed'}</span>
+    <span class="badge ${isTrialActive(me)?'ok':'muted'}">Free trial until ${fmtDate(me.trial_ends_on)}</span>
+    <span class="badge muted">Rating ${me.rating}</span></p>
+  </div>`;
+  document.getElementById('mtype').onchange = e=>{
+    document.getElementById('partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
+  };
+  document.getElementById('sendChallenge').onclick = async ()=>{
+    const match_type = document.getElementById('mtype').value;
+    const opponent_id = document.getElementById('opp').value;
+    const payload = {challenger_id:me.id, opponent_id, match_type, status:'pending'};
+    if(match_type==='doubles'){
+      payload.challenger_partner_id = document.getElementById('myPartner').value;
+      payload.opponent_partner_id = document.getElementById('oppPartner').value;
+    }
+    const {error} = await sb.from('sttl_challenges').insert(payload);
+    if(error) document.getElementById('ch_err').textContent = error.message;
+    else { document.getElementById('ch_err').style.color='var(--ok)'; document.getElementById('ch_err').textContent='Challenge sent!'; }
+  };
+}
+
+async function nameOf(id){ const p = players.find(x=>x.id===id) || (id===me.id?me:null); return p? p.name : id?.slice(0,6); }
+
+async function renderChallenges(){
+  await refreshPlayers();
+  const {data:incoming} = await sb.from('sttl_challenges').select('*').eq('opponent_id',me.id).eq('status','pending');
+  const {data:outgoing} = await sb.from('sttl_challenges').select('*').eq('challenger_id',me.id).eq('status','pending');
+  app.innerHTML = `<div class="card"><h2>Incoming challenges</h2>
+    ${(incoming&&incoming.length)? (await Promise.all(incoming.map(async c=>`
+      <div class="row" style="align-items:center;border-bottom:1px solid var(--line);padding:8px 0">
+        <div>${await nameOf(c.challenger_id)} challenged you (${c.match_type})</div>
+        <div><button class="btn" onclick="respondChallenge('${c.id}','accepted')">Accept</button>
+        <button class="btn ghost" onclick="respondChallenge('${c.id}','declined')">Decline</button></div>
+      </div>`))).join('') : '<p class="muted">None right now.</p>'}
+  </div>
+  <div class="card"><h2>Outgoing challenges (pending)</h2>
+    ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})</div>`))).join(''):'<p class="muted">None right now.</p>'}
+  </div>`;
+}
+window.respondChallenge = async (id,status)=>{
+  await sb.from('sttl_challenges').update({status}).eq('id',id);
+  renderChallenges();
+};
+
+async function renderMatches(){
+  await refreshPlayers();
+  const {data:accepted} = await sb.from('sttl_challenges').select('*').or(`challenger_id.eq.${me.id},opponent_id.eq.${me.id}`).eq('status','accepted');
+  const ids = (accepted||[]).map(c=>c.id);
+  let results=[];
+  if(ids.length){ const {data} = await sb.from('sttl_match_results').select('*').in('challenge_id',ids); results=data||[]; }
+  const rows = await Promise.all((accepted||[]).map(async c=>{
+    const res = results.find(r=>r.challenge_id===c.id);
+    const iAmChallenger = c.challenger_id===me.id;
+    let action='';
+    if(!res){
+      action = `<button class="btn" onclick="openScoreEntry('${c.id}')">Enter score</button>`;
+    } else if(!res.acknowledged && res.entered_by!==me.id){
+      action = `<button class="btn" onclick="ackScore('${res.id}')">Acknowledge score</button> <span class="muted">${JSON.stringify(res.sets)}</span>`;
+    } else if(!res.acknowledged){
+      action = `<span class="badge muted">Waiting for opponent to acknowledge</span>`;
+    } else {
+      action = `<span class="badge ok">Recorded — winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)}</span>`;
+    }
+    return `<tr><td>${await nameOf(c.challenger_id)}</td><td>${await nameOf(c.opponent_id)}</td><td>${c.match_type}</td><td>${action}</td></tr>`;
+  }));
+  app.innerHTML = `<div class="card"><h2>Your matches</h2>
+    <table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>Status</th></tr>${rows.join('')||'<tr><td colspan=4 class="muted">No accepted matches yet.</td></tr>'}</table>
+  </div>`;
+}
+window.openScoreEntry = (challengeId)=>{
+  modal(`<h2>Enter score</h2>
+    <p class="muted">Best of 5, each set to 11 (win by 2). Enter each side's points.</p>
+    <div id="sets"></div>
+    <button class="btn ghost" onclick="addSetRow()">+ Add set</button>
+    <div class="row" style="margin-top:12px"><button class="btn" onclick="submitScore('${challengeId}')">Submit score</button><button class="btn ghost" onclick="closeModal()">Cancel</button></div>
+    <div class="error" id="sc_err"></div>`);
+  addSetRow(); addSetRow(); addSetRow();
+};
+window.addSetRow = ()=>{
+  const d=document.createElement('div'); d.className='row'; d.style.marginTop='6px';
+  d.innerHTML = `<input type="number" placeholder="Your pts" class="setA"><input type="number" placeholder="Opponent pts" class="setB">`;
+  document.getElementById('sets').appendChild(d);
+};
+window.submitScore = async (challengeId)=>{
+  const as=[...document.querySelectorAll('.setA')].map(i=>parseInt(i.value,10));
+  const bs=[...document.querySelectorAll('.setB')].map(i=>parseInt(i.value,10));
+  const sets=[]; let winsA=0,winsB=0;
+  for(let i=0;i<as.length;i++){ if(isNaN(as[i])||isNaN(bs[i])) continue; sets.push({a:as[i],b:bs[i]}); if(as[i]>bs[i])winsA++; else winsB++; }
+  if(!sets.length){ document.getElementById('sc_err').textContent='Enter at least one set.'; return; }
+  const {data:c} = await sb.from('sttl_challenges').select('*').eq('id',challengeId).single();
+  const winner_side = winsA>winsB ? (c.challenger_id===me.id?'challenger':'opponent') : (c.challenger_id===me.id?'opponent':'challenger');
+  await sb.from('sttl_match_results').insert({challenge_id:challengeId, sets, winner_side, entered_by:me.id});
+  closeModal(); renderMatches();
+};
+window.ackScore = async (resultId)=>{
+  const {data:res} = await sb.from('sttl_match_results').select('*').eq('id',resultId).single();
+  await sb.from('sttl_match_results').update({acknowledged:true, acknowledged_by:me.id}).eq('id',resultId);
+  const {data:c} = await sb.from('sttl_challenges').select('*').eq('id',res.challenge_id).single();
+  const winnerId = res.winner_side==='challenger'? c.challenger_id : c.opponent_id;
+  const loserId = res.winner_side==='challenger'? c.opponent_id : c.challenger_id;
+  const {data:w} = await sb.from('sttl_players').select('rating').eq('id',winnerId).single();
+  const {data:l} = await sb.from('sttl_players').select('rating').eq('id',loserId).single();
+  await sb.from('sttl_players').update({rating:(w?.rating||1000)+15, last_played_on:new Date().toISOString().slice(0,10)}).eq('id',winnerId);
+  await sb.from('sttl_players').update({rating:Math.max(100,(l?.rating||1000)-10), last_played_on:new Date().toISOString().slice(0,10)}).eq('id',loserId);
+  renderMatches();
+};
+
+function ratingTier(r){
+  if(r>=1300) return {name:'Gold', pct:15};
+  if(r>=1150) return {name:'Silver', pct:10};
+  return {name:'Bronze', pct:5};
+}
+function renderShop(){
+  const t=ratingTier(me.rating);
+  app.innerHTML = `<div class="card"><h2>Sin Ten Sports Shop</h2>
+    <p>Your rating: <b>${me.rating}</b> → Tier: <span class="tag">${t.name}</span></p>
+    <p>You get <b>${t.pct}% off</b> at <a class="link" onclick="window.open('https://www.sintensports.com.sg/','_blank')">Sin Ten Sports Trading</a>. Show your profile at checkout.</p>
+    <table><tr><th>Tier</th><th>Rating</th><th>Discount</th></tr>
+    <tr><td>Bronze</td><td>&lt;1150</td><td>5%</td></tr>
+    <tr><td>Silver</td><td>1150–1299</td><td>10%</td></tr>
+    <tr><td>Gold</td><td>1300+</td><td>15%</td></tr></table>
+  </div>`;
+}
+
+function renderInfo(){
+  app.innerHTML = `<div class="card"><h2>How STTL works</h2>
+    <p><b>1. Sign up</b> with your name, email, password, age and community center. You can log in right away, but you'll need admin approval before your <i>Play</i> tab unlocks.</p>
+    <p><b>2. Free trial</b> — your first month is free from your signup date. After that, an active subscription (S$2/month) is needed to keep playing.</p>
+    <p><b>3. Challenge</b> any approved, paying player to singles or doubles from the Play tab.</p>
+    <p><b>4. Accept</b> — your opponent must accept before a match counts.</p>
+    <p><b>5. Score entry</b> — either side keys in the set scores, the other side must acknowledge before it's recorded.</p>
+    <h2>ITTF scoring, simply</h2>
+    <p>A match is usually <b>best of 5 sets</b>. Each set is played to <b>11 points</b>, but you must win by at least <b>2 points</b> (e.g. 11–9). If it's 10–10, play continues until one side is 2 points ahead (e.g. 14–12).</p>
+    <p class="muted">Example: Set scores 11–7, 9–11, 11–6, 11–8 → challenger wins 3 sets to 1, so the challenger wins the match.</p>
+    <h2>Inactivity check-in</h2>
+    <p>If you haven't played for 10 days in a row, we'll ask what's going on next time you log in, so admins can support you.</p>
+    <h2>Rewards</h2>
+    <p>Your rating decides your discount tier at Sin Ten Sports Trading — keep playing to climb tiers.</p>
+  </div>`;
+}
+
+// ---------- ADMIN ----------
+async function renderAdminGate(){
+  if(!me.is_admin){ activeTab='play'; return renderPlay(); }
+  if(!me.admin_pin_enabled){ return renderAdmin(); }
+  modal(`<h2>Admin PIN</h2><input id="pinInp" maxlength="4" placeholder="4-digit PIN" style="text-align:center;font-size:22px;letter-spacing:6px">
+    <div class="error" id="pinErr"></div>
+    <div class="row" style="margin-top:12px"><button class="btn" id="pinGo">Enter</button><button class="btn ghost" id="pinCancel">Cancel</button></div>`);
+  document.getElementById('pinCancel').onclick=()=>{closeModal(); activeTab='play'; renderTab();};
+  document.getElementById('pinGo').onclick=()=>{
+    const v=document.getElementById('pinInp').value;
+    if(v===me.admin_pin){ closeModal(); renderAdmin(); }
+    else document.getElementById('pinErr').textContent='Incorrect PIN.';
+  };
+}
+
+async function renderAdmin(){
+  const {data:all} = await sb.from('sttl_players').select('*').order('created_at',{ascending:false});
+  const {data:cfg} = await sb.from('sttl_app_config').select('*').eq('id',1).single();
+  const {data:ccs} = await sb.from('sttl_communities').select('*').order('name');
+  const notes = await sb.from('sttl_inactivity_notes').select('*, sttl_players!inner(name)').order('created_at',{ascending:false});
+  app.innerHTML = `
+  <div class="card"><h2>Admin settings</h2>
+    <label><input type="checkbox" id="pinToggle" ${me.admin_pin_enabled?'checked':''}> Require PIN to open Admin tab</label>
+    <label>Disable subscriptions for month (YYYY-MM, blank = none disabled)</label>
+    <input id="disMonth" value="${cfg?.subscriptions_disabled_month||''}" placeholder="2026-09">
+    <button class="btn" id="saveCfg" style="margin-top:10px">Save settings</button>
+  </div>
+  <div class="card"><h2>Add a new player</h2>
+    <div class="row">
+      <div><label>Name</label><input id="nu_name"></div>
+      <div><label>Email</label><input id="nu_email" type="email"></div>
+    </div>
+    <div class="row">
+      <div><label>Temp password</label><input id="nu_pw" type="password"></div>
+      <div><label>Age</label><input id="nu_age" type="number"></div>
+    </div>
+    <label>Community Center</label>
+    <select id="nu_cc">${(ccs||[]).map(c=>`<option value="${c.name}">${c.name}</option>`).join('')}</select>
+    <div class="error" id="nu_err"></div>
+    <button class="btn" id="nu_go" style="margin-top:10px">Add player (auto-approved)</button>
+  </div>
+  <div class="card"><h2>Manage players</h2>
+    <table><tr><th>Name</th><th>Email</th><th>CC</th><th>Age</th><th>Approved</th><th>Subscribed</th><th>Actions</th></tr>
+    ${(all||[]).map(p=>`<tr>
+      <td>${p.name}${p.is_admin?' <span class="tag">admin</span>':''}</td><td>${p.email||''}</td><td>${p.community_center}</td><td>${p.age}</td>
+      <td>${p.is_approved?'<span class="badge ok">Yes</span>':'<span class="badge warn">No</span>'}</td>
+      <td>${p.is_subscribed?'<span class="badge ok">Yes</span>':'<span class="badge muted">No</span>'}</td>
+      <td>
+        ${!p.is_approved?`<button class="btn" onclick="approveUser('${p.id}')">Approve</button>`:''}
+        <button class="btn ghost" onclick="editUser('${p.id}')">Edit</button>
+        <button class="btn ghost" style="color:var(--warn)" onclick="deleteUser('${p.id}')">Remove</button>
+      </td>
+    </tr>`).join('')}
+    </table>
+  </div>
+  <div class="card"><h2>Community centers</h2>
+    <div class="row">${(ccs||[]).map(c=>`<span class="tag">${c.name} <a onclick="removeCC('${c.id}','${c.name.replace(/'/g,"\\'")}')" style="cursor:pointer">✕</a></span>`).join(' ')}</div>
+    <div class="row" style="margin-top:10px"><input id="newCC" placeholder="New community center name"><button class="btn" id="addCCBtn">Add</button></div>
+    <div class="error" id="cc_err"></div>
+  </div>
+  <div class="card"><h2>Inactivity notes</h2>
+    ${(notes.data||[]).map(n=>`<p><b>${n.sttl_players?.name||''}</b>: ${n.reason} <span class="muted">(${fmtDate(n.created_at)})</span></p>`).join('')||'<p class="muted">None.</p>'}
+  </div>`;
+  document.getElementById('saveCfg').onclick = async ()=>{
+    const pinToggle=document.getElementById('pinToggle').checked;
+    const disMonth=document.getElementById('disMonth').value.trim()||null;
+    await sb.from('sttl_players').update({admin_pin_enabled:pinToggle}).eq('id',me.id);
+    await sb.from('sttl_app_config').update({subscriptions_disabled_month:disMonth}).eq('id',1);
+    me.admin_pin_enabled=pinToggle;
+    renderAdmin();
+  };
+  document.getElementById('nu_go').onclick = async ()=>{
+    const name=document.getElementById('nu_name').value.trim();
+    const email=document.getElementById('nu_email').value.trim();
+    const password=document.getElementById('nu_pw').value;
+    const age=parseInt(document.getElementById('nu_age').value,10);
+    const community_center=document.getElementById('nu_cc').value;
+    const err=document.getElementById('nu_err');
+    if(!name||!email||!pwOk(password)||!age){ err.textContent='Fill all fields; password needs upper/lower/number/special, 8+ chars.'; return; }
+    const result = await callFn({action:'create_user', name, email, password, age, community_center}, true);
+    if(result.error){ err.textContent=result.error; return; }
+    renderAdmin();
+  };
+  document.getElementById('addCCBtn').onclick = async ()=>{
+    const name=document.getElementById('newCC').value.trim();
+    const err=document.getElementById('cc_err');
+    if(!name){ return; }
+    const {error} = await sb.from('sttl_communities').insert({name});
+    if(error) err.textContent = error.message; else renderAdmin();
+  };
+}
+window.approveUser = async (id)=>{ await sb.from('sttl_players').update({is_approved:true}).eq('id',id); renderAdmin(); };
+window.deleteUser = async (id)=>{
+  if(!confirm('Remove this player? This deletes their login too.')) return;
+  const result = await callFn({action:'delete_user', user_id:id}, true);
+  if(result.error){ alert(result.error); return; }
+  renderAdmin();
+};
+window.removeCC = async (id,name)=>{
+  if(!confirm(`Remove ${name}?`)) return;
+  const {error} = await sb.from('sttl_communities').delete().eq('id',id);
+  if(error) alert(error.message); else renderAdmin();
+};
+window.editUser = async (id)=>{
+  const {data:p} = await sb.from('sttl_players').select('*').eq('id',id).single();
+  modal(`<h2>Edit ${p.name}</h2>
+    <label>Name</label><input id="e_name" value="${p.name}">
+    <label>Age</label><input id="e_age" type="number" value="${p.age}">
+    <label>Community Center</label><input id="e_cc" value="${p.community_center}">
+    <label><input type="checkbox" id="e_sub" ${p.is_subscribed?'checked':''}> Subscribed</label>
+    <label><input type="checkbox" id="e_admin" ${p.is_admin?'checked':''}> Admin</label>
+    <div class="row" style="margin-top:12px"><button class="btn" onclick="saveEdit('${id}')">Save</button><button class="btn ghost" onclick="closeModal()">Cancel</button></div>`);
+};
+window.saveEdit = async (id)=>{
+  await sb.from('sttl_players').update({
+    name:document.getElementById('e_name').value,
+    age:parseInt(document.getElementById('e_age').value,10),
+    community_center:document.getElementById('e_cc').value,
+    is_subscribed:document.getElementById('e_sub').checked,
+    is_admin:document.getElementById('e_admin').checked
+  }).eq('id',id);
+  closeModal(); renderAdmin();
+};
+
+// ---------- INIT ----------
+(async ()=>{
+  const {data:{session:s}} = await sb.auth.getSession();
+  if(s){ session=s; await loadMeAndBoot(); } else { renderLogin(); }
+})();
+</script>
+</body>
+</html>
