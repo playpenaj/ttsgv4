@@ -7,15 +7,23 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
-  --navy:#0b2545; --navy2:#13355e; --accent:#e8622c; --accent2:#ff7d3b;
-  --bg:#f4f6f9; --card:#ffffff; --text:#1c2733; --muted:#5b6b7c; --line:#e3e8ee;
+  /* Table-tennis theme: table-felt green, paddle red, ball orange, white lines */
+  --navy:#0d4d3a; --navy2:#136b4e; --accent:#d62828; --accent2:#e84545;
+  --ball:#ff9f1c;
+  --bg:#eaf3ee; --card:#ffffff; --text:#14261f; --muted:#587065; --line:#d5e6dc;
   --ok:#1e8e5a; --warn:#c0392b;
   font-family: 'Segoe UI', Roboto, Arial, sans-serif;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;overflow-x:hidden;width:100%;}
-body{background:var(--bg);color:var(--text);-webkit-tap-highlight-color:transparent;}
-header{background:linear-gradient(120deg,var(--navy),var(--navy2));color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+body{background:var(--bg) radial-gradient(circle at 20% 0%,#f6fbf8 0,transparent 60%);color:var(--text);-webkit-tap-highlight-color:transparent;}
+header{background:
+    linear-gradient(90deg,transparent 49.6%,rgba(255,255,255,.35) 49.6%,rgba(255,255,255,.35) 50.4%,transparent 50.4%),
+    linear-gradient(120deg,var(--navy),var(--navy2));
+  color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;
+  border-bottom:4px solid #fff;box-shadow:0 2px 0 var(--ball)}
+header .brand b .ball{display:inline-block;animation:bounce 1.4s ease-in-out infinite}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
 header .brand{display:flex;flex-direction:column;min-width:0}
 header .brand b{font-size:19px}
 header .brand small{color:#cfe0f5;opacity:.85;font-size:12px}
@@ -27,7 +35,7 @@ nav button.active{color:var(--navy);border-bottom-color:var(--accent);font-weigh
 nav button:hover:not(:disabled){background:#f1f5fb;color:var(--navy)}
 nav button:disabled{opacity:.4;cursor:not-allowed}
 main{max-width:900px;margin:0 auto;padding:16px;width:100%}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(20,30,50,.05);max-width:100%}
+.card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--navy2);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(20,30,50,.05);max-width:100%}
 h2{margin-top:0;color:var(--navy);font-size:18px}
 label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
 input,select,textarea{width:100%;padding:11px 10px;border:1px solid var(--line);border-radius:6px;font-size:16px;background:#fff}
@@ -59,6 +67,12 @@ tr:hover td{background:#f7f9fc}
 .tag a:hover{color:var(--warn)}
 .hidden{display:none !important}
 footer{text-align:center;padding:20px;color:var(--muted);font-size:12px}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px;opacity:.9}
+.spinner.big{width:28px;height:28px;border-width:3px;border-color:var(--ball);border-top-color:var(--navy);margin:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-box{display:flex;align-items:center;justify-content:center;gap:12px;padding:34px;color:var(--muted)}
+.paddle-loader{font-size:28px;display:inline-block;animation:swing .8s ease-in-out infinite;transform-origin:70% 90%}
+@keyframes swing{0%,100%{transform:rotate(-25deg)}50%{transform:rotate(25deg)}}
 a.link{color:var(--navy);cursor:pointer;text-decoration:underline;font-size:13px}
 a.link:hover{color:var(--accent)}
 @media (max-width:600px){
@@ -73,7 +87,7 @@ a.link:hover{color:var(--accent)}
 <body>
 
 <header>
-  <div class="brand"><b>🏓 Singapore Table Tennis League</b><small>Play. Challenge. Climb the ranks.</small></div>
+  <div class="brand"><b><span class="ball">🏓</span> Singapore Table Tennis League</b><small>Play. Challenge. Climb the ranks.</small></div>
   <div class="sponsor">Sponsored by <a href="https://www.sintensports.com.sg/" target="_blank">Sin Ten Sports Trading</a></div>
   <div id="whoBar" class="sponsor"></div>
 </header>
@@ -94,9 +108,21 @@ a.link:hover{color:var(--accent)}
 const SUPABASE_URL = "https://gdvbplbqehrtrgiwwcja.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkdmJwbGJxZWhydHJnaXd3Y2phIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMzExOTEsImV4cCI6MjEwNTgwNzE5MX0.w61-EWRvERE2QzXTKMifXp63Pqq5BFgMDKx99k3LPkY";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-// A second client that never touches localStorage/session state, so admin
-// actions that call auth.signUp() for OTHER people never log the admin out.
-const sbAdmin = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {auth:{persistSession:false, autoRefreshToken:false}});
+// A second client for admin actions that call auth.signUp() for OTHER
+// people (so it never logs the admin out). Created lazily, only the moment
+// it's actually needed, so a normal player never has two GoTrue clients
+// alive at once — that was causing "Multiple GoTrueClient instances"
+// warnings and could contend for the same browser auth lock during login/
+// registration.
+let _sbAdmin=null;
+function getSbAdmin(){
+  if(!_sbAdmin){
+    _sbAdmin = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth:{persistSession:false, autoRefreshToken:false, storageKey:'sb-admin-ephemeral-auth'}
+    });
+  }
+  return _sbAdmin;
+}
 const FUNCTIONS_URL = `${SUPABASE_URL}/functions/v1/admin-actions`;
 async function callFn(payload, needsAuth){
   try{
@@ -123,6 +149,20 @@ const app=document.getElementById('app');
 const modalRoot=document.getElementById('modalRoot');
 const nav=document.getElementById('nav');
 
+function setLoading(btn,on,label){
+  if(!btn) return;
+  if(on){
+    if(btn.dataset.orig===undefined) btn.dataset.orig=btn.innerHTML;
+    btn.disabled=true;
+    btn.innerHTML='<span class="spinner"></span>'+(label||'Processing...');
+  }else{
+    btn.disabled=false;
+    if(btn.dataset.orig!==undefined){ btn.innerHTML=btn.dataset.orig; delete btn.dataset.orig; }
+  }
+}
+function showLoading(msg){
+  app.innerHTML='<div class="card"><div class="loading-box"><span class="paddle-loader">🏓</span><span>'+(msg||'Loading…')+'</span></div></div>';
+}
 function pwOk(p){return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(p);}
 function daysSince(d){ if(!d) return 9999; return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
 function fmtDate(d){return d? new Date(d).toLocaleDateString():'-';}
@@ -148,11 +188,13 @@ function renderLogin(){
     </div>
     <p><a class="link" id="li_forgot">Forgot password?</a></p>
   </div>`;
-  document.getElementById('li_go').onclick = async ()=>{
+  document.getElementById('li_go').onclick = async (e)=>{
+    const btn=e.currentTarget;
     const email=document.getElementById('li_email').value.trim();
     const password=document.getElementById('li_pw').value;
+    setLoading(btn,true,'Logging in...');
     const {data,error} = await sb.auth.signInWithPassword({email,password});
-    if(error){ document.getElementById('li_err').textContent = error.message; return; }
+    if(error){ setLoading(btn,false); document.getElementById('li_err').textContent = error.message; return; }
     session = data.session; await loadMeAndBoot();
   };
   document.getElementById('li_signup').onclick = renderSignup;
@@ -181,7 +223,8 @@ async function renderSignup(){
     </div>
   </div>`;
   document.getElementById('su_back').onclick = renderLogin;
-  document.getElementById('su_go').onclick = async ()=>{
+  document.getElementById('su_go').onclick = async (e)=>{
+    const btn=e.currentTarget;
     const name=document.getElementById('su_name').value.trim();
     const email=document.getElementById('su_email').value.trim();
     const pw=document.getElementById('su_pw').value;
@@ -190,29 +233,47 @@ async function renderSignup(){
     const err=document.getElementById('su_err');
     if(!name||!email||!age||!cc){ err.textContent='Please fill all fields.'; return; }
     if(!pwOk(pw)){ err.textContent='Password does not meet the requirements.'; return; }
+    setLoading(btn,true,'Registering...');
     const {data,error} = await sb.auth.signUp({email,password:pw});
-    if(error){ err.textContent=error.message; return; }
-    const alreadyExisted = !!(data.user && data.user.identities && data.user.identities.length===0);
-    const uid = data.user?.id;
-    if(alreadyExisted){
-      // Supabase says this email is registered. It may genuinely be an
-      // existing account, OR an orphaned login from an earlier failed
-      // signup attempt that never got a profile row.
-      const {data:existingProfile} = await sb.from('sttl_players').select('id').ilike('email',email).maybeSingle();
-      if(existingProfile){
-        err.textContent = 'An account with this email already exists. Please log in, or use Forgot password.';
-      } else {
-        err.textContent = 'This email has a leftover login from an earlier attempt, with no profile attached. Please ask your admin to delete it in Supabase → Authentication → Users, then register again.';
+
+    // Supabase signals "this email is taken" two different ways depending on
+    // the project's "Confirm email" setting: either a direct error whose
+    // message contains "already registered", or (when confirmation is on) a
+    // successful-looking response with an empty identities array. Catch both.
+    const alreadyExists = (error && /already registered|already exists/i.test(error.message))
+      || !!(data && data.user && data.user.identities && data.user.identities.length===0);
+
+    if(alreadyExists){
+      // Don't just block here — it might be genuinely their own account (or
+      // an orphaned login from an earlier attempt). Try signing in with the
+      // password they just typed: if that's really them, this recovers the
+      // account with no admin step needed at all.
+      const {data:signInData, error:signInErr} = await sb.auth.signInWithPassword({email,password:pw});
+      if(signInErr){
+        setLoading(btn,false);
+        err.textContent = 'An account with this email already exists. Please log in with your existing password, or use Forgot password.';
+        return;
       }
+      session = signInData.session;
+      const uid = signInData.user.id;
+      const {data:existingProfile} = await sb.from('sttl_players').select('id').eq('id',uid).maybeSingle();
+      if(!existingProfile){
+        const {error:insErr} = await sb.from('sttl_players').insert({id:uid,name,email,age,community_center:cc});
+        if(insErr){ setLoading(btn,false); err.textContent = insErr.message; return; }
+      }
+      await loadMeAndBoot();
       return;
     }
-    if(!uid){ err.textContent='Could not create your account. Please try again.'; return; }
+
+    if(error){ setLoading(btn,false); err.textContent=error.message; return; }
+    const uid = data.user?.id;
+    if(!uid){ setLoading(btn,false); err.textContent='Could not create your account. Please try again.'; return; }
     if(data.session){
-      // We already have an active session (this is the normal case once
-      // "Confirm email" is turned OFF in Supabase) — insert the profile
-      // directly. No backend function needed.
+      // We already have an active session (the normal case once "Confirm
+      // email" is turned OFF in Supabase) — insert the profile directly.
+      // No backend function needed.
       const {error:insErr} = await sb.from('sttl_players').insert({id:uid,name,email,age,community_center:cc});
-      if(insErr){ err.textContent = insErr.message; return; }
+      if(insErr){ setLoading(btn,false); err.textContent = insErr.message; return; }
       session = data.session;
       await loadMeAndBoot();
       return;
@@ -223,12 +284,13 @@ async function renderSignup(){
     // the service role). If that isn't deployed either, say so plainly.
     const reg = await callFn({action:'register_profile', id:uid, name, email, age, community_center:cc}, false);
     if(reg.error){
+      setLoading(btn,false);
       err.textContent = 'Your login was created, but registration could not finish automatically ('+reg.error+'). The fix: turn OFF "Confirm email" under Supabase → Authentication → Providers → Email — this lets new accounts finish registering and log in immediately with no backend function required.';
       return;
     }
-    const {data:signInData, error:signInErr} = await sb.auth.signInWithPassword({email,password:pw});
-    if(signInErr){ err.textContent = signInErr.message; return; }
-    session = signInData.session;
+    const {data:signInData2, error:signInErr2} = await sb.auth.signInWithPassword({email,password:pw});
+    if(signInErr2){ setLoading(btn,false); err.textContent = signInErr2.message; return; }
+    session = signInData2.session;
     await loadMeAndBoot();
   };
 }
@@ -255,7 +317,8 @@ async function renderForgot(){
     </div>
   </div>`;
   document.getElementById('fp_back').onclick = renderLogin;
-  document.getElementById('fp_go').onclick = async ()=>{
+  document.getElementById('fp_go').onclick = async (e)=>{
+    const btn=e.currentTarget;
     const email=document.getElementById('fp_email').value.trim();
     const age=parseInt(document.getElementById('fp_age').value,10);
     const cc=document.getElementById('fp_cc').value.trim();
@@ -264,10 +327,12 @@ async function renderForgot(){
     err.style.color='var(--warn)';
     if(!email||!age||!cc){ err.textContent='Please fill all fields.'; return; }
     if(!pwOk(new_password)){ err.textContent='Password does not meet the requirements.'; return; }
+    setLoading(btn,true,'Verifying...');
     const {data:match} = await sb.from('sttl_players').select('id').ilike('email',email).eq('age',age).ilike('community_center',cc).maybeSingle();
-    if(!match){ err.textContent='No account matches those details.'; return; }
+    if(!match){ setLoading(btn,false); err.textContent='No account matches those details.'; return; }
     const result = await callFn({action:'verify_reset', email, age, community_center:cc, new_password}, false);
     if(!result.error){
+      setLoading(btn,false);
       err.style.color='var(--ok)';
       err.textContent = 'Password updated. You can log in now.';
       return;
@@ -275,6 +340,7 @@ async function renderForgot(){
     // The instant-reset function isn't reachable — fall back to Supabase's
     // built-in reset email so this never dead-ends.
     const {error:rpErr} = await sb.auth.resetPasswordForEmail(email);
+    setLoading(btn,false);
     if(rpErr){ err.textContent = rpErr.message; return; }
     err.style.color='var(--ok)';
     err.textContent = 'Your details matched our records. Our instant-reset backend isn\'t reachable right now, so we emailed you a password reset link instead — check your inbox.';
@@ -381,7 +447,7 @@ async function computeLeagueStats(){
 }
 
 async function renderDashboard(){
-  app.innerHTML = `<div class="card"><p class="muted">Loading dashboard…</p></div>`;
+  showLoading('Loading dashboard…');
   const all = await computeLeagueStats();
   const byRating = [...all].sort((a,b)=>b.rating-a.rating);
   const myRank = byRating.findIndex(p=>p.id===me.id)+1;
@@ -426,6 +492,7 @@ async function renderPlay(){
       <p class="muted">${!me.is_approved ? 'Your account is pending admin approval. Once approved you can start challenging players.' : 'Your free month and subscription have both ended. Please subscribe ($2/month) to keep playing.'}</p></div>`;
     return;
   }
+  showLoading('Loading your matches…');
   await refreshPlayers();
   const {data:incoming} = await sb.from('sttl_challenges').select('*').eq('opponent_id',me.id).eq('status','pending');
   const {data:outgoing} = await sb.from('sttl_challenges').select('*').eq('challenger_id',me.id).eq('status','pending');
@@ -440,7 +507,7 @@ async function renderPlay(){
     if(!res){
       action = `<button class="btn" onclick="openScoreEntry('${c.id}')">Enter winner / score</button>`;
     } else if(!res.acknowledged && res.entered_by!==me.id){
-      action = `<button class="btn" onclick="ackScore('${res.id}')">Accept result</button> <span class="muted">(winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)})</span>`;
+      action = `<button class="btn" onclick="ackScore(this,'${res.id}')">Accept result</button> <span class="muted">(winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)})</span>`;
     } else if(!res.acknowledged){
       action = `<span class="badge muted">Waiting for opponent to accept</span>`;
     } else {
@@ -466,8 +533,8 @@ async function renderPlay(){
     ${(incoming&&incoming.length)? (await Promise.all(incoming.map(async c=>`
       <div class="row" style="align-items:center;border-bottom:1px solid var(--line);padding:8px 0">
         <div>${await nameOf(c.challenger_id)} challenged you (${c.match_type})</div>
-        <div><button class="btn" onclick="respondChallenge('${c.id}','accepted')">Accept</button>
-        <button class="btn ghost" onclick="respondChallenge('${c.id}','declined')">Decline</button></div>
+        <div><button class="btn" onclick="respondChallenge(this,'${c.id}','accepted')">Accept</button>
+        <button class="btn ghost" onclick="respondChallenge(this,'${c.id}','declined')">Decline</button></div>
       </div>`))).join('') : '<p class="muted">None right now.</p>'}
   </div>
   <div class="card"><h2>Outgoing challenges (pending)</h2>
@@ -485,7 +552,9 @@ async function renderPlay(){
   document.getElementById('mtype').onchange = e=>{
     document.getElementById('partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
   };
-  document.getElementById('sendChallenge').onclick = async ()=>{
+  document.getElementById('sendChallenge').onclick = async (e)=>{
+    const btn=e.currentTarget;
+    setLoading(btn,true,'Sending...');
     const match_type = document.getElementById('mtype').value;
     const opponent_id = document.getElementById('opp').value;
     const payload = {challenger_id:me.id, opponent_id, match_type, status:'pending'};
@@ -494,14 +563,15 @@ async function renderPlay(){
       payload.opponent_partner_id = document.getElementById('oppPartner').value;
     }
     const {error} = await sb.from('sttl_challenges').insert(payload);
-    if(error) document.getElementById('ch_err').textContent = error.message;
+    if(error){ setLoading(btn,false); document.getElementById('ch_err').textContent = error.message; }
     else { document.getElementById('ch_err').style.color='var(--ok)'; document.getElementById('ch_err').textContent='Challenge sent!'; renderPlay(); }
   };
 }
 
 async function nameOf(id){ const p = players.find(x=>x.id===id) || (id===me.id?me:null); return p? p.name : id?.slice(0,6); }
 
-window.respondChallenge = async (id,status)=>{
+window.respondChallenge = async (btn,id,status)=>{
+  setLoading(btn,true,'Saving...');
   await sb.from('sttl_challenges').update({status}).eq('id',id);
   renderPlay();
 };
@@ -511,7 +581,7 @@ window.openScoreEntry = (challengeId)=>{
     <p class="muted">Best of 5, each set to 11 (win by 2). Enter each side's points — the winner is worked out automatically.</p>
     <div id="sets"></div>
     <button class="btn ghost" onclick="addSetRow()">+ Add set</button>
-    <div class="row" style="margin-top:12px"><button class="btn" onclick="submitScore('${challengeId}')">Submit</button><button class="btn ghost" onclick="closeModal()">Cancel</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn" onclick="submitScore(this,'${challengeId}')">Submit</button><button class="btn ghost" onclick="closeModal()">Cancel</button></div>
     <div class="error" id="sc_err"></div>`);
   addSetRow(); addSetRow(); addSetRow();
 };
@@ -520,18 +590,20 @@ window.addSetRow = ()=>{
   d.innerHTML = `<input type="number" placeholder="Your pts" class="setA"><input type="number" placeholder="Opponent pts" class="setB">`;
   document.getElementById('sets').appendChild(d);
 };
-window.submitScore = async (challengeId)=>{
+window.submitScore = async (btn,challengeId)=>{
   const as=[...document.querySelectorAll('.setA')].map(i=>parseInt(i.value,10));
   const bs=[...document.querySelectorAll('.setB')].map(i=>parseInt(i.value,10));
   const sets=[]; let winsA=0,winsB=0;
   for(let i=0;i<as.length;i++){ if(isNaN(as[i])||isNaN(bs[i])) continue; sets.push({a:as[i],b:bs[i]}); if(as[i]>bs[i])winsA++; else winsB++; }
   if(!sets.length){ document.getElementById('sc_err').textContent='Enter at least one set.'; return; }
+  setLoading(btn,true,'Submitting...');
   const {data:c} = await sb.from('sttl_challenges').select('*').eq('id',challengeId).single();
   const winner_side = winsA>winsB ? (c.challenger_id===me.id?'challenger':'opponent') : (c.challenger_id===me.id?'opponent':'challenger');
   await sb.from('sttl_match_results').insert({challenge_id:challengeId, sets, winner_side, entered_by:me.id});
   closeModal(); renderPlay();
 };
-window.ackScore = async (resultId)=>{
+window.ackScore = async (btn,resultId)=>{
+  setLoading(btn,true,'Recording...');
   const {data:res} = await sb.from('sttl_match_results').select('*').eq('id',resultId).single();
   await sb.from('sttl_match_results').update({acknowledged:true, acknowledged_by:me.id}).eq('id',resultId);
   const {data:c} = await sb.from('sttl_challenges').select('*').eq('id',res.challenge_id).single();
@@ -590,6 +662,7 @@ async function renderAdminGate(){
 }
 
 async function renderAdmin(){
+  showLoading('Loading admin tools…');
   const {data:all} = await sb.from('sttl_players').select('*').order('created_at',{ascending:false});
   const {data:cfg} = await sb.from('sttl_app_config').select('*').eq('id',1).single();
   const {data:ccs} = await sb.from('sttl_communities').select('*').order('name');
@@ -623,9 +696,9 @@ async function renderAdmin(){
       <td>${p.is_subscribed?'<span class="badge ok">Yes</span>':'<span class="badge muted">No</span>'}</td>
       <td>${fmtDateTime(p.last_login_at)}</td>
       <td>
-        ${!p.is_approved?`<button class="btn" onclick="approveUser('${p.id}')">Approve</button>`:''}
+        ${!p.is_approved?`<button class="btn" onclick="approveUser(this,'${p.id}')">Approve</button>`:''}
         <button class="btn ghost" onclick="editUser('${p.id}')">Edit</button>
-        <button class="btn ghost" style="color:var(--warn)" onclick="deleteUser('${p.id}')">Remove</button>
+        <button class="btn ghost" style="color:var(--warn)" onclick="deleteUser(this,'${p.id}')">Remove</button>
       </td>
     </tr>`).join('')}
     </table></div>
@@ -638,7 +711,8 @@ async function renderAdmin(){
   <div class="card"><h2>Inactivity notes</h2>
     ${(notes.data||[]).map(n=>`<p><b>${n.sttl_players?.name||''}</b>: ${n.reason} <span class="muted">(${fmtDate(n.created_at)})</span></p>`).join('')||'<p class="muted">None.</p>'}
   </div>`;
-  document.getElementById('saveCfg').onclick = async ()=>{
+  document.getElementById('saveCfg').onclick = async (e)=>{
+    setLoading(e.currentTarget,true,'Saving...');
     const pinToggle=document.getElementById('pinToggle').checked;
     const disMonth=document.getElementById('disMonth').value.trim()||null;
     await sb.from('sttl_players').update({admin_pin_enabled:pinToggle}).eq('id',me.id);
@@ -646,7 +720,8 @@ async function renderAdmin(){
     me.admin_pin_enabled=pinToggle;
     renderAdmin();
   };
-  document.getElementById('nu_go').onclick = async ()=>{
+  document.getElementById('nu_go').onclick = async (e)=>{
+    const btn=e.currentTarget;
     const name=document.getElementById('nu_name').value.trim();
     const email=document.getElementById('nu_email').value.trim();
     const password=document.getElementById('nu_pw').value;
@@ -654,33 +729,37 @@ async function renderAdmin(){
     const community_center=document.getElementById('nu_cc').value;
     const err=document.getElementById('nu_err');
     if(!name||!email||!pwOk(password)||!age){ err.textContent='Fill all fields; password needs upper/lower/number/special, 8+ chars.'; return; }
+    setLoading(btn,true,'Adding...');
     // Uses sbAdmin (a separate client instance) so this signUp never
     // disturbs the admin's own logged-in session.
-    const {data:createData, error:createErr} = await sbAdmin.auth.signUp({email,password});
-    if(createErr){ err.textContent = createErr.message; return; }
+    const {data:createData, error:createErr} = await getSbAdmin().auth.signUp({email,password});
+    if(createErr){ setLoading(btn,false); err.textContent = createErr.message; return; }
     const newId = createData.user?.id;
-    if(!newId){ err.textContent='Could not create the account. Please try again.'; return; }
+    if(!newId){ setLoading(btn,false); err.textContent='Could not create the account. Please try again.'; return; }
     const {error:insErr} = await sb.from('sttl_players').insert({id:newId,name,email,age,community_center,is_approved:true});
-    if(insErr){ err.textContent = insErr.message; return; }
+    if(insErr){ setLoading(btn,false); err.textContent = insErr.message; return; }
     if(!createData.session){
       err.style.color='var(--ok)';
       err.textContent = 'Player added. Note: they may need to confirm their email before they can log in — or turn OFF "Confirm email" in Supabase Auth settings so it works immediately.';
     }
     renderAdmin();
   };
-  document.getElementById('addCCBtn').onclick = async ()=>{
+  document.getElementById('addCCBtn').onclick = async (e)=>{
+    const btn=e.currentTarget;
     const name=document.getElementById('newCC').value.trim();
     const err=document.getElementById('cc_err');
     if(!name){ return; }
+    setLoading(btn,true,'Adding...');
     const {error} = await sb.from('sttl_communities').insert({name});
-    if(error) err.textContent = error.message; else renderAdmin();
+    if(error){ setLoading(btn,false); err.textContent = error.message; } else renderAdmin();
   };
 }
-window.approveUser = async (id)=>{ await sb.from('sttl_players').update({is_approved:true}).eq('id',id); renderAdmin(); };
-window.deleteUser = async (id)=>{
+window.approveUser = async (btn,id)=>{ setLoading(btn,true,'Approving...'); await sb.from('sttl_players').update({is_approved:true}).eq('id',id); renderAdmin(); };
+window.deleteUser = async (btn,id)=>{
   if(!confirm('Remove this player from the league?\n\nThis deletes their profile, ratings and match links. Their login will still exist in Supabase Auth — remove it there too if you want them fully gone.')) return;
+  setLoading(btn,true,'Removing...');
   const {error} = await sb.from('sttl_players').delete().eq('id',id);
-  if(error){ alert('Could not remove player: '+error.message); return; }
+  if(error){ setLoading(btn,false); alert('Could not remove player: '+error.message); return; }
   renderAdmin();
 };
 window.removeCC = async (id,name)=>{
