@@ -7,16 +7,16 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
-  /* Table-tennis theme: table-felt green, paddle red, ball orange, white lines */
-  --navy:#0d4d3a; --navy2:#136b4e; --accent:#d62828; --accent2:#e84545;
-  --ball:#ff9f1c;
-  --bg:#eaf3ee; --card:#ffffff; --text:#14261f; --muted:#587065; --line:#d5e6dc;
-  --ok:#1e8e5a; --warn:#c0392b;
+  /* Singapore theme, dark blue: navy header/accents, gold star highlight */
+  --navy:#0A2A5E; --navy2:#06183A; --accent:#0A2A5E; --accent2:#123B82;
+  --ball:#FFD700;
+  --bg:#f5f7fa; --card:#ffffff; --text:#16233a; --muted:#5c6b83; --line:#e3e8f0;
+  --ok:#1e8e5a; --warn:#b8860b;
   font-family: 'Segoe UI', Roboto, Arial, sans-serif;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;overflow-x:hidden;width:100%;}
-body{background:var(--bg) radial-gradient(circle at 20% 0%,#f6fbf8 0,transparent 60%);color:var(--text);-webkit-tap-highlight-color:transparent;}
+body{background:var(--bg) radial-gradient(circle at 20% 0%,#ffffff 0,transparent 60%);color:var(--text);-webkit-tap-highlight-color:transparent;}
 header{background:
     linear-gradient(90deg,transparent 49.6%,rgba(255,255,255,.35) 49.6%,rgba(255,255,255,.35) 50.4%,transparent 50.4%),
     linear-gradient(120deg,var(--navy),var(--navy2));
@@ -35,7 +35,7 @@ nav button.active{color:var(--navy);border-bottom-color:var(--accent);font-weigh
 nav button:hover:not(:disabled){background:#f1f5fb;color:var(--navy)}
 nav button:disabled{opacity:.4;cursor:not-allowed}
 main{max-width:900px;margin:0 auto;padding:16px;width:100%}
-.card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--navy2);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(20,30,50,.05);max-width:100%}
+.card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--ball);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(20,30,50,.05);max-width:100%}
 h2{margin-top:0;color:var(--navy);font-size:18px}
 label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
 input,select,textarea{width:100%;padding:11px 10px;border:1px solid var(--line);border-radius:6px;font-size:16px;background:#fff}
@@ -87,7 +87,7 @@ a.link:hover{color:var(--accent)}
 <body>
 
 <header>
-  <div class="brand"><b><span class="ball">🏓</span> Singapore Table Tennis League</b><small>Play. Challenge. Climb the ranks.</small></div>
+  <div class="brand"><b>🇸🇬 <span class="ball">🏓</span> Singapore Table Tennis League</b><small>Play. Challenge. Climb the ranks.</small></div>
   <div class="sponsor">Sponsored by <a href="https://www.sintensports.com.sg/" target="_blank">Sin Ten Sports Trading</a></div>
   <div id="whoBar" class="sponsor"></div>
 </header>
@@ -275,6 +275,7 @@ async function renderSignup(){
       const {error:insErr} = await sb.from('sttl_players').insert({id:uid,name,email,age,community_center:cc});
       if(insErr){ setLoading(btn,false); err.textContent = insErr.message; return; }
       session = data.session;
+      showJustRegisteredNotice();
       await loadMeAndBoot();
       return;
     }
@@ -291,6 +292,7 @@ async function renderSignup(){
     const {data:signInData2, error:signInErr2} = await sb.auth.signInWithPassword({email,password:pw});
     if(signInErr2){ setLoading(btn,false); err.textContent = signInErr2.message; return; }
     session = signInData2.session;
+    showJustRegisteredNotice();
     await loadMeAndBoot();
   };
 }
@@ -315,6 +317,7 @@ async function renderForgot(){
       <button class="btn" id="fp_go">Verify &amp; Set New Password</button>
       <button class="btn ghost" id="fp_back">Back</button>
     </div>
+    <p class="muted" style="margin-top:14px">Signed up but never got in? <a class="link" id="fp_email_only">Email me a reset link instead</a></p>
   </div>`;
   document.getElementById('fp_back').onclick = renderLogin;
   document.getElementById('fp_go').onclick = async (e)=>{
@@ -329,7 +332,11 @@ async function renderForgot(){
     if(!pwOk(new_password)){ err.textContent='Password does not meet the requirements.'; return; }
     setLoading(btn,true,'Verifying...');
     const {data:match} = await sb.from('sttl_players').select('id').ilike('email',email).eq('age',age).ilike('community_center',cc).maybeSingle();
-    if(!match){ setLoading(btn,false); err.textContent='No account matches those details.'; return; }
+    if(!match){
+      setLoading(btn,false);
+      err.textContent='No account matches those details. If this is a leftover/incomplete signup with no profile yet, use "Email me a reset link" below instead.';
+      return;
+    }
     const result = await callFn({action:'verify_reset', email, age, community_center:cc, new_password}, false);
     if(!result.error){
       setLoading(btn,false);
@@ -345,6 +352,60 @@ async function renderForgot(){
     err.style.color='var(--ok)';
     err.textContent = 'Your details matched our records. Our instant-reset backend isn\'t reachable right now, so we emailed you a password reset link instead — check your inbox.';
   };
+  document.getElementById('fp_email_only').onclick = async (e)=>{
+    const btn=e.currentTarget;
+    const email=document.getElementById('fp_email').value.trim();
+    const err=document.getElementById('fp_err');
+    if(!email){ err.style.color='var(--warn)'; err.textContent='Enter your email above first.'; return; }
+    setLoading(btn,true,'Sending...');
+    const {error:rpErr} = await sb.auth.resetPasswordForEmail(email);
+    setLoading(btn,false);
+    err.style.color = rpErr ? 'var(--warn)' : 'var(--ok)';
+    err.textContent = rpErr ? rpErr.message : 'If that email has an account, a reset link is on its way — check your inbox. After resetting, log in and you\'ll be asked to finish your profile.';
+  };
+}
+
+async function renderCompleteProfile(user){
+  nav.classList.add('hidden');
+  if(communities.length===0){
+    const {data} = await sb.from('sttl_communities').select('name').order('name');
+    communities = data || [];
+  }
+  app.innerHTML = `
+  <div class="card" style="max-width:460px;margin:30px auto">
+    <h2>Finish setting up your account</h2>
+    <p class="muted">You're logged in as ${user.email}, but a few details are missing — this can happen if an earlier signup was interrupted. Fill these in to continue.</p>
+    <label>Full name</label><input id="cp_name">
+    <label>Age</label><input id="cp_age" type="number" min="10" max="100">
+    <label>Community Center</label>
+    <select id="cp_cc">${communities.map(c=>`<option value="${c.name}">${c.name}</option>`).join('')}</select>
+    <div class="error" id="cp_err"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="cp_go">Save &amp; Continue</button>
+      <button class="btn ghost" id="cp_logout">Log out</button>
+    </div>
+  </div>`;
+  document.getElementById('cp_logout').onclick = async ()=>{ await sb.auth.signOut(); location.reload(); };
+  document.getElementById('cp_go').onclick = async (e)=>{
+    const btn=e.currentTarget;
+    const name=document.getElementById('cp_name').value.trim();
+    const age=parseInt(document.getElementById('cp_age').value,10);
+    const cc=document.getElementById('cp_cc').value;
+    const err=document.getElementById('cp_err');
+    if(!name||!age||!cc){ err.textContent='Please fill all fields.'; return; }
+    setLoading(btn,true,'Saving...');
+    const {error} = await sb.from('sttl_players').insert({id:user.id,name,email:user.email,age,community_center:cc});
+    if(error){ setLoading(btn,false); err.textContent = error.message; return; }
+    showJustRegisteredNotice();
+    await loadMeAndBoot();
+  };
+}
+
+function showJustRegisteredNotice(){
+  modal(`<h2>Account created 🏓</h2>
+    <p>Welcome to the Singapore Table Tennis League! Your account is now <b>pending admin approval</b> — once approved you'll be able to challenge other players. You can look around the app in the meantime.</p>
+    <button class="btn" id="reg_ok">Got it</button>`);
+  document.getElementById('reg_ok').onclick = closeModal;
 }
 
 // ---------- BOOT ----------
@@ -352,7 +413,7 @@ async function loadMeAndBoot(){
   const {data:{user}} = await sb.auth.getUser();
   if(!user){ renderLogin(); return; }
   let {data:p} = await sb.from('sttl_players').select('*').eq('id',user.id).maybeSingle();
-  if(!p){ renderLogin(); return; }
+  if(!p){ renderCompleteProfile(user); return; }
   me = {...p, email:user.email};
   const previousLoginAt = me.last_login_at; // keep pre-update value to display as "last login"
   sb.from('sttl_players').update({last_login_at:new Date().toISOString()}).eq('id',me.id).then(()=>{});
@@ -503,9 +564,10 @@ async function renderPlay(){
 
   const matchRows = await Promise.all((accepted||[]).map(async c=>{
     const res = results.find(r=>r.challenge_id===c.id);
+    const when = c.scheduled_at ? fmtDateTime(c.scheduled_at) : '<span class="muted">Not scheduled</span>';
     let action='';
     if(!res){
-      action = `<button class="btn" onclick="openScoreEntry('${c.id}')">Enter winner / score</button>`;
+      action = `<button class="btn" onclick="openScoreEntry('${c.id}')">Enter winner</button>`;
     } else if(!res.acknowledged && res.entered_by!==me.id){
       action = `<button class="btn" onclick="ackScore(this,'${res.id}')">Accept result</button> <span class="muted">(winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)})</span>`;
     } else if(!res.acknowledged){
@@ -513,7 +575,7 @@ async function renderPlay(){
     } else {
       action = `<span class="badge ok">Points recorded — winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)}</span>`;
     }
-    return `<tr><td>${await nameOf(c.challenger_id)}</td><td>${await nameOf(c.opponent_id)}</td><td>${c.match_type}</td><td>${action}</td></tr>`;
+    return `<tr><td>${await nameOf(c.challenger_id)}</td><td>${await nameOf(c.opponent_id)}</td><td>${c.match_type}</td><td>${when}</td><td>${action}</td></tr>`;
   }));
 
   app.innerHTML = `
@@ -526,23 +588,42 @@ async function renderPlay(){
       <label>Your partner</label><select id="myPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
       <label>Opponent's partner</label><select id="oppPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
     </div>
+    <label>Date &amp; time you want to play</label>
+    <input type="datetime-local" id="whenPlay">
     <button class="btn" id="sendChallenge" style="margin-top:12px">Send Challenge</button>
     <div class="error" id="ch_err"></div>
   </div>
   <div class="card"><h2>Incoming challenges</h2>
     ${(incoming&&incoming.length)? (await Promise.all(incoming.map(async c=>`
       <div class="row" style="align-items:center;border-bottom:1px solid var(--line);padding:8px 0">
-        <div>${await nameOf(c.challenger_id)} challenged you (${c.match_type})</div>
+        <div>${await nameOf(c.challenger_id)} challenged you (${c.match_type})${c.scheduled_at?` — <span class="muted">${fmtDateTime(c.scheduled_at)}</span>`:''}</div>
         <div><button class="btn" onclick="respondChallenge(this,'${c.id}','accepted')">Accept</button>
         <button class="btn ghost" onclick="respondChallenge(this,'${c.id}','declined')">Decline</button></div>
       </div>`))).join('') : '<p class="muted">None right now.</p>'}
   </div>
   <div class="card"><h2>Outgoing challenges (pending)</h2>
-    ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})</div>`))).join(''):'<p class="muted">None right now.</p>'}
+    ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})${c.scheduled_at?` — ${fmtDateTime(c.scheduled_at)}`:''}</div>`))).join(''):'<p class="muted">None right now.</p>'}
   </div>
   <div class="card"><h2>Your matches</h2>
-    <p class="muted">Enter the score to submit a winner — your opponent must accept it for the points to reflect.</p>
-    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=4 class="muted">No accepted matches yet.</td></tr>'}</table></div>
+    <p class="muted">Pick the winner — your opponent must accept it for the points to reflect.</p>
+    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>When</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=5 class="muted">No accepted matches yet.</td></tr>'}</table></div>
+  </div>
+  <div class="card"><h2>Record a match you've already played</h2>
+    <p class="muted">For games played outside a formal challenge — pick who played and who won. Your opponent must approve it before the score list updates.</p>
+    <label>Match type</label>
+    <select id="qr_type"><option value="singles">Singles</option><option value="doubles">Doubles</option></select>
+    <label>Opponent</label>
+    <select id="qr_opp">${players.map(p=>`<option value="${p.id}">${p.name} (${p.community_center})</option>`).join('')}</select>
+    <div id="qr_partnerBox" class="hidden">
+      <label>Your partner</label><select id="qr_myPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
+      <label>Opponent's partner</label><select id="qr_oppPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
+    </div>
+    <label>Winner</label>
+    <select id="qr_winner"><option value="me">Me</option><option value="opp">Opponent</option></select>
+    <label>Date played</label>
+    <input type="datetime-local" id="qr_when">
+    <button class="btn" id="qr_submit" style="margin-top:12px">Submit for opponent's approval</button>
+    <div class="error" id="qr_err"></div>
   </div>
   <div class="card"><h2>Your status</h2>
     <p><span class="badge ${me.is_subscribed?'ok':'warn'}">${me.is_subscribed?'Subscribed':'Not subscribed'}</span>
@@ -557,7 +638,9 @@ async function renderPlay(){
     setLoading(btn,true,'Sending...');
     const match_type = document.getElementById('mtype').value;
     const opponent_id = document.getElementById('opp').value;
+    const whenVal = document.getElementById('whenPlay').value;
     const payload = {challenger_id:me.id, opponent_id, match_type, status:'pending'};
+    if(whenVal) payload.scheduled_at = new Date(whenVal).toISOString();
     if(match_type==='doubles'){
       payload.challenger_partner_id = document.getElementById('myPartner').value;
       payload.opponent_partner_id = document.getElementById('oppPartner').value;
@@ -565,6 +648,30 @@ async function renderPlay(){
     const {error} = await sb.from('sttl_challenges').insert(payload);
     if(error){ setLoading(btn,false); document.getElementById('ch_err').textContent = error.message; }
     else { document.getElementById('ch_err').style.color='var(--ok)'; document.getElementById('ch_err').textContent='Challenge sent!'; renderPlay(); }
+  };
+  document.getElementById('qr_type').onchange = e=>{
+    document.getElementById('qr_partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
+  };
+  document.getElementById('qr_submit').onclick = async (e)=>{
+    const btn=e.currentTarget;
+    const err=document.getElementById('qr_err');
+    const match_type = document.getElementById('qr_type').value;
+    const opponent_id = document.getElementById('qr_opp').value;
+    const winner = document.getElementById('qr_winner').value;
+    const whenVal = document.getElementById('qr_when').value;
+    setLoading(btn,true,'Submitting...');
+    const payload = {challenger_id:me.id, opponent_id, match_type, status:'accepted'};
+    if(whenVal) payload.scheduled_at = new Date(whenVal).toISOString();
+    if(match_type==='doubles'){
+      payload.challenger_partner_id = document.getElementById('qr_myPartner').value;
+      payload.opponent_partner_id = document.getElementById('qr_oppPartner').value;
+    }
+    const {data:newChallenge, error:cErr} = await sb.from('sttl_challenges').insert(payload).select().single();
+    if(cErr){ setLoading(btn,false); err.textContent = cErr.message; return; }
+    const winner_side = winner==='me' ? 'challenger' : 'opponent';
+    const {error:rErr} = await sb.from('sttl_match_results').insert({challenge_id:newChallenge.id, sets:null, winner_side, entered_by:me.id});
+    if(rErr){ setLoading(btn,false); err.textContent = rErr.message; return; }
+    renderPlay();
   };
 }
 
@@ -577,29 +684,20 @@ window.respondChallenge = async (btn,id,status)=>{
 };
 
 window.openScoreEntry = (challengeId)=>{
-  modal(`<h2>Enter winner / score</h2>
-    <p class="muted">Best of 5, each set to 11 (win by 2). Enter each side's points — the winner is worked out automatically.</p>
-    <div id="sets"></div>
-    <button class="btn ghost" onclick="addSetRow()">+ Add set</button>
+  modal(`<h2>Enter winner</h2>
+    <p class="muted">Just pick who won — your opponent will need to accept this before it counts.</p>
+    <label>Winner</label>
+    <select id="win_pick"><option value="me">Me</option><option value="opp">Opponent</option></select>
     <div class="row" style="margin-top:12px"><button class="btn" onclick="submitScore(this,'${challengeId}')">Submit</button><button class="btn ghost" onclick="closeModal()">Cancel</button></div>
     <div class="error" id="sc_err"></div>`);
-  addSetRow(); addSetRow(); addSetRow();
-};
-window.addSetRow = ()=>{
-  const d=document.createElement('div'); d.className='row'; d.style.marginTop='6px';
-  d.innerHTML = `<input type="number" placeholder="Your pts" class="setA"><input type="number" placeholder="Opponent pts" class="setB">`;
-  document.getElementById('sets').appendChild(d);
 };
 window.submitScore = async (btn,challengeId)=>{
-  const as=[...document.querySelectorAll('.setA')].map(i=>parseInt(i.value,10));
-  const bs=[...document.querySelectorAll('.setB')].map(i=>parseInt(i.value,10));
-  const sets=[]; let winsA=0,winsB=0;
-  for(let i=0;i<as.length;i++){ if(isNaN(as[i])||isNaN(bs[i])) continue; sets.push({a:as[i],b:bs[i]}); if(as[i]>bs[i])winsA++; else winsB++; }
-  if(!sets.length){ document.getElementById('sc_err').textContent='Enter at least one set.'; return; }
+  const winner=document.getElementById('win_pick').value;
   setLoading(btn,true,'Submitting...');
   const {data:c} = await sb.from('sttl_challenges').select('*').eq('id',challengeId).single();
-  const winner_side = winsA>winsB ? (c.challenger_id===me.id?'challenger':'opponent') : (c.challenger_id===me.id?'opponent':'challenger');
-  await sb.from('sttl_match_results').insert({challenge_id:challengeId, sets, winner_side, entered_by:me.id});
+  const winner_side = winner==='me' ? (c.challenger_id===me.id?'challenger':'opponent') : (c.challenger_id===me.id?'opponent':'challenger');
+  const {error} = await sb.from('sttl_match_results').insert({challenge_id:challengeId, sets:null, winner_side, entered_by:me.id});
+  if(error){ setLoading(btn,false); document.getElementById('sc_err').textContent = error.message; return; }
   closeModal(); renderPlay();
 };
 window.ackScore = async (btn,resultId)=>{
@@ -629,7 +727,7 @@ function renderInfo(){
     <p><b>2. Free trial</b> — your first month is free from your signup date. After that, an active subscription (S$2/month) is needed to keep playing.</p>
     <p><b>3. Challenge</b> any approved, paying player to singles or doubles from the Play tab.</p>
     <p><b>4. Accept</b> — your opponent must accept before a match counts.</p>
-    <p><b>5. Score entry</b> — either side submits the score, the other side must accept it before the points reflect.</p>
+    <p><b>5. Winner entry</b> — either side picks who won, the other side must accept it before the points reflect. We track the winner only, not set-by-set scores.</p>
     <h2>ITTF scoring, simply</h2>
     <p>A match is usually <b>best of 5 sets</b>. Each set is played to <b>11 points</b>, but you must win by at least <b>2 points</b> (e.g. 11–9). If it's 10–10, play continues until one side is 2 points ahead (e.g. 14–12).</p>
     <p class="muted">Example: Set scores 11–7, 9–11, 11–6, 11–8 → challenger wins 3 sets to 1, so the challenger wins the match.</p>
