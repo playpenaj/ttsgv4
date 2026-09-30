@@ -305,63 +305,62 @@ async function renderForgot(){
   app.innerHTML = `
   <div class="card" style="max-width:440px;margin:30px auto">
     <h2>Forgot password</h2>
-    <p class="muted">Enter your details to verify it's you — no email is sent, you'll set a new password right here.</p>
+    <p class="muted">No email is sent. Verify your details first, then set a new password right here.</p>
     <label>Email</label><input id="fp_email">
     <label>Age</label><input id="fp_age" type="number">
     <label>Community Center</label>
     <select id="fp_cc"><option value="">Select...</option>${communities.map(c=>`<option value="${c.name}">${c.name}</option>`).join('')}</select>
-    <label>New password</label><input id="fp_pw" type="password">
-    <div class="muted">Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character.</div>
-    <div class="error" id="fp_err"></div>
+    <div class="error" id="fp_verify_err"></div>
     <div class="row" style="margin-top:14px">
-      <button class="btn" id="fp_go">Verify &amp; Set New Password</button>
+      <button class="btn" id="fp_verify">Verify</button>
       <button class="btn ghost" id="fp_back">Back</button>
     </div>
-    <p class="muted" style="margin-top:14px">Signed up but never got in? <a class="link" id="fp_email_only">Email me a reset link instead</a></p>
+    <div id="fp_pw_section" class="hidden">
+      <label>New password</label><input id="fp_pw" type="password">
+      <div class="muted">Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character.</div>
+      <label>Confirm password</label><input id="fp_pw2" type="password">
+      <div class="error" id="fp_err"></div>
+      <button class="btn" id="fp_submit" style="margin-top:12px">Set New Password</button>
+    </div>
   </div>`;
   document.getElementById('fp_back').onclick = renderLogin;
-  document.getElementById('fp_go').onclick = async (e)=>{
+  document.getElementById('fp_verify').onclick = async (e)=>{
     const btn=e.currentTarget;
     const email=document.getElementById('fp_email').value.trim();
     const age=parseInt(document.getElementById('fp_age').value,10);
     const cc=document.getElementById('fp_cc').value.trim();
-    const new_password=document.getElementById('fp_pw').value;
-    const err=document.getElementById('fp_err');
+    const err=document.getElementById('fp_verify_err');
     err.style.color='var(--warn)';
     if(!email||!age||!cc){ err.textContent='Please fill all fields.'; return; }
-    if(!pwOk(new_password)){ err.textContent='Password does not meet the requirements.'; return; }
     setLoading(btn,true,'Verifying...');
     const {data:match} = await sb.from('sttl_players').select('id').ilike('email',email).eq('age',age).ilike('community_center',cc).maybeSingle();
-    if(!match){
-      setLoading(btn,false);
-      err.textContent='No account matches those details. If this is a leftover/incomplete signup with no profile yet, use "Email me a reset link" below instead.';
-      return;
-    }
-    const result = await callFn({action:'verify_reset', email, age, community_center:cc, new_password}, false);
-    if(!result.error){
-      setLoading(btn,false);
-      err.style.color='var(--ok)';
-      err.textContent = 'Password updated. You can log in now.';
-      return;
-    }
-    // The instant-reset function isn't reachable — fall back to Supabase's
-    // built-in reset email so this never dead-ends.
-    const {error:rpErr} = await sb.auth.resetPasswordForEmail(email);
     setLoading(btn,false);
-    if(rpErr){ err.textContent = rpErr.message; return; }
+    if(!match){
+      document.getElementById('fp_pw_section').classList.add('hidden');
+      err.textContent='No account matches those details.';
+      return;
+    }
     err.style.color='var(--ok)';
-    err.textContent = 'Your details matched our records. Our instant-reset backend isn\'t reachable right now, so we emailed you a password reset link instead — check your inbox.';
+    err.textContent='Details verified — set your new password below.';
+    document.getElementById('fp_pw_section').classList.remove('hidden');
   };
-  document.getElementById('fp_email_only').onclick = async (e)=>{
+  document.getElementById('fp_submit').onclick = async (e)=>{
     const btn=e.currentTarget;
     const email=document.getElementById('fp_email').value.trim();
+    const age=parseInt(document.getElementById('fp_age').value,10);
+    const cc=document.getElementById('fp_cc').value.trim();
+    const pw=document.getElementById('fp_pw').value;
+    const pw2=document.getElementById('fp_pw2').value;
     const err=document.getElementById('fp_err');
-    if(!email){ err.style.color='var(--warn)'; err.textContent='Enter your email above first.'; return; }
-    setLoading(btn,true,'Sending...');
-    const {error:rpErr} = await sb.auth.resetPasswordForEmail(email);
+    err.style.color='var(--warn)';
+    if(!pwOk(pw)){ err.textContent='Password does not meet the requirements.'; return; }
+    if(pw!==pw2){ err.textContent='Passwords do not match.'; return; }
+    setLoading(btn,true,'Updating...');
+    const result = await callFn({action:'verify_reset', email, age, community_center:cc, new_password:pw}, false);
     setLoading(btn,false);
-    err.style.color = rpErr ? 'var(--warn)' : 'var(--ok)';
-    err.textContent = rpErr ? rpErr.message : 'If that email has an account, a reset link is on its way — check your inbox. After resetting, log in and you\'ll be asked to finish your profile.';
+    if(result.error){ err.textContent = result.error; return; }
+    err.style.color='var(--ok)';
+    err.textContent = 'Password updated. You can log in now.';
   };
 }
 
