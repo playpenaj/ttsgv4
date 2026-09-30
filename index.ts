@@ -63,6 +63,8 @@ Deno.serve(async (req) => {
     // ---- Public: create the player profile row right after signUp.
     // Uses the service role so it works even before the user's email is
     // confirmed (i.e. before they have an active session / auth.uid()).
+    // It also force-confirms the email here, so login works immediately
+    // regardless of the project's "Confirm email" setting.
     if (action === "register_profile") {
       const { id, name, email, age, community_center } = body;
       if (!id || !name || !email || !age || !community_center) {
@@ -70,6 +72,7 @@ Deno.serve(async (req) => {
       }
       const { data: userCheck, error: uErr } = await admin.auth.admin.getUserById(id);
       if (uErr || !userCheck?.user) return cors({ error: "Invalid user." }, 400);
+      await admin.auth.admin.updateUserById(id, { email_confirm: true });
       const { error: iErr } = await admin.from("sttl_players").upsert({ id, name, email, age, community_center });
       if (iErr) return cors({ error: iErr.message }, 400);
       return cors({ ok: true });
