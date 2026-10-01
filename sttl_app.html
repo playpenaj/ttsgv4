@@ -56,6 +56,8 @@ button.btn:disabled:hover{background:var(--accent)}
 .badge.muted{background:#eef1f5;color:var(--muted)}
 .muted{color:var(--muted);font-size:13px}
 .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
+.wrap-table table{min-width:0;width:100%;table-layout:fixed}
+.wrap-table td,.wrap-table th{white-space:normal;word-break:break-word}
 table{width:100%;border-collapse:collapse;font-size:14px;min-width:420px}
 th,td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 tr:hover td{background:#f7f9fc}
@@ -164,6 +166,15 @@ function showLoading(msg){
   app.innerHTML='<div class="card"><div class="loading-box"><span class="paddle-loader">🏓</span><span>'+(msg||'Loading…')+'</span></div></div>';
 }
 function pwOk(p){return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(p);}
+async function validateName(name, email, excludeId){
+  const n=(name||'').trim(), e=(email||'').trim().toLowerCase();
+  if(!n) return 'Please enter a name.';
+  if(n.toLowerCase()===e) return 'Name cannot be the same as the email address — players only see the name, so it needs to be a real display name.';
+  const {data} = await sb.from('sttl_players').select('id').ilike('name', n);
+  const clash = (data||[]).find(r=>r.id!==excludeId);
+  if(clash) return 'That name is already taken by another player — please choose a different display name.';
+  return null;
+}
 function daysSince(d){ if(!d) return 9999; return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
 function fmtDate(d){return d? new Date(d).toLocaleDateString():'-';}
 function fmtDateTime(d){return d? new Date(d).toLocaleString():'Never';}
@@ -233,6 +244,8 @@ async function renderSignup(){
     const err=document.getElementById('su_err');
     if(!name||!email||!age||!cc){ err.textContent='Please fill all fields.'; return; }
     if(!pwOk(pw)){ err.textContent='Password does not meet the requirements.'; return; }
+    const nameErr = await validateName(name, email);
+    if(nameErr){ err.textContent = nameErr; return; }
     setLoading(btn,true,'Registering...');
     const {data,error} = await sb.auth.signUp({email,password:pw});
 
@@ -356,9 +369,12 @@ async function renderForgot(){
     if(!pwOk(pw)){ err.textContent='Password does not meet the requirements.'; return; }
     if(pw!==pw2){ err.textContent='Passwords do not match.'; return; }
     setLoading(btn,true,'Updating...');
-    const result = await callFn({action:'verify_reset', email, age, community_center:cc, new_password:pw}, false);
+    const {data:ok, error:rpcErr} = await sb.rpc('reset_password_verified', {
+      p_email: email, p_age: age, p_community_center: cc, p_new_password: pw
+    });
     setLoading(btn,false);
-    if(result.error){ err.textContent = result.error; return; }
+    if(rpcErr){ err.textContent = rpcErr.message; return; }
+    if(!ok){ err.textContent = 'No account matches those details.'; return; }
     err.style.color='var(--ok)';
     err.textContent = 'Password updated. You can log in now.';
   };
@@ -392,6 +408,8 @@ async function renderCompleteProfile(user){
     const cc=document.getElementById('cp_cc').value;
     const err=document.getElementById('cp_err');
     if(!name||!age||!cc){ err.textContent='Please fill all fields.'; return; }
+    const nameErr = await validateName(name, user.email, user.id);
+    if(nameErr){ err.textContent = nameErr; return; }
     setLoading(btn,true,'Saving...');
     const {error} = await sb.from('sttl_players').insert({id:user.id,name,email:user.email,age,community_center:cc});
     if(error){ setLoading(btn,false); err.textContent = error.message; return; }
@@ -553,6 +571,10 @@ async function renderPlay(){
     return;
   }
   showLoading('Loading your matches…');
+  if(communities.length===0){
+    const {data} = await sb.from('sttl_communities').select('name').order('name');
+    communities = data || [];
+  }
   await refreshPlayers();
   const {data:incoming} = await sb.from('sttl_challenges').select('*').eq('opponent_id',me.id).eq('status','pending');
   const {data:outgoing} = await sb.from('sttl_challenges').select('*').eq('challenger_id',me.id).eq('status','pending');
@@ -564,6 +586,7 @@ async function renderPlay(){
   const matchRows = await Promise.all((accepted||[]).map(async c=>{
     const res = results.find(r=>r.challenge_id===c.id);
     const when = c.scheduled_at ? fmtDateTime(c.scheduled_at) : '<span class="muted">Not scheduled</span>';
+    const venue = c.venue ? c.venue : '<span class="muted">—</span>';
     let action='';
     if(!res){
       action = `<button class="btn" onclick="openScoreEntry('${c.id}')">Enter winner</button>`;
@@ -574,7 +597,7 @@ async function renderPlay(){
     } else {
       action = `<span class="badge ok">Points recorded — winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)}</span>`;
     }
-    return `<tr><td>${await nameOf(c.challenger_id)}</td><td>${await nameOf(c.opponent_id)}</td><td>${c.match_type}</td><td>${when}</td><td>${action}</td></tr>`;
+    return `<tr><td>${await nameOf(c.challenger_id)}</td><td>${await nameOf(c.opponent_id)}</td><td>${c.match_type}</td><td>${when}</td><td>${venue}</td><td>${action}</td></tr>`;
   }));
 
   app.innerHTML = `
@@ -589,23 +612,24 @@ async function renderPlay(){
     </div>
     <label>Date &amp; time you want to play</label>
     <input type="datetime-local" id="whenPlay">
+    ${venuePickerHtml('venue')}
     <button class="btn" id="sendChallenge" style="margin-top:12px">Send Challenge</button>
     <div class="error" id="ch_err"></div>
   </div>
   <div class="card"><h2>Incoming challenges</h2>
     ${(incoming&&incoming.length)? (await Promise.all(incoming.map(async c=>`
       <div class="row" style="align-items:center;border-bottom:1px solid var(--line);padding:8px 0">
-        <div>${await nameOf(c.challenger_id)} challenged you (${c.match_type})${c.scheduled_at?` — <span class="muted">${fmtDateTime(c.scheduled_at)}</span>`:''}</div>
+        <div>${await nameOf(c.challenger_id)} challenged you (${c.match_type})${c.scheduled_at?` — <span class="muted">${fmtDateTime(c.scheduled_at)}</span>`:''}${c.venue?` <span class="muted">at ${c.venue}</span>`:''}</div>
         <div><button class="btn" onclick="respondChallenge(this,'${c.id}','accepted')">Accept</button>
         <button class="btn ghost" onclick="respondChallenge(this,'${c.id}','declined')">Decline</button></div>
       </div>`))).join('') : '<p class="muted">None right now.</p>'}
   </div>
   <div class="card"><h2>Outgoing challenges (pending)</h2>
-    ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})${c.scheduled_at?` — ${fmtDateTime(c.scheduled_at)}`:''}</div>`))).join(''):'<p class="muted">None right now.</p>'}
+    ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})${c.scheduled_at?` — ${fmtDateTime(c.scheduled_at)}`:''}${c.venue?` at ${c.venue}`:''}</div>`))).join(''):'<p class="muted">None right now.</p>'}
   </div>
   <div class="card"><h2>Your matches</h2>
     <p class="muted">Pick the winner — your opponent must accept it for the points to reflect.</p>
-    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>When</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=5 class="muted">No accepted matches yet.</td></tr>'}</table></div>
+    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>When</th><th>Venue</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=6 class="muted">No accepted matches yet.</td></tr>'}</table></div>
   </div>
   <div class="card"><h2>Record a match you've already played</h2>
     <p class="muted">For games played outside a formal challenge — pick who played and who won. Your opponent must approve it before the score list updates.</p>
@@ -621,6 +645,7 @@ async function renderPlay(){
     <select id="qr_winner"><option value="me">Me</option><option value="opp">Opponent</option></select>
     <label>Date played</label>
     <input type="datetime-local" id="qr_when">
+    ${venuePickerHtml('qr_venue')}
     <button class="btn" id="qr_submit" style="margin-top:12px">Submit for opponent's approval</button>
     <div class="error" id="qr_err"></div>
   </div>
@@ -628,18 +653,22 @@ async function renderPlay(){
     <p><span class="badge ${me.is_subscribed?'ok':'warn'}">${me.is_subscribed?'Subscribed':'Not subscribed'}</span>
     <span class="badge ${isTrialActive(me)?'ok':'muted'}">Free trial until ${fmtDate(me.trial_ends_on)}</span>
     <span class="badge muted">Rating ${me.rating}</span></p>
+    ${(!me.is_subscribed && !isTrialActive(me)) ? paymentUploadHtml() : ''}
   </div>`;
   document.getElementById('mtype').onchange = e=>{
     document.getElementById('partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
   };
+  wireVenuePicker('venue');
   document.getElementById('sendChallenge').onclick = async (e)=>{
     const btn=e.currentTarget;
     setLoading(btn,true,'Sending...');
     const match_type = document.getElementById('mtype').value;
     const opponent_id = document.getElementById('opp').value;
     const whenVal = document.getElementById('whenPlay').value;
+    const venue = getVenueValue('venue');
     const payload = {challenger_id:me.id, opponent_id, match_type, status:'pending'};
     if(whenVal) payload.scheduled_at = new Date(whenVal).toISOString();
+    if(venue) payload.venue = venue;
     if(match_type==='doubles'){
       payload.challenger_partner_id = document.getElementById('myPartner').value;
       payload.opponent_partner_id = document.getElementById('oppPartner').value;
@@ -651,6 +680,7 @@ async function renderPlay(){
   document.getElementById('qr_type').onchange = e=>{
     document.getElementById('qr_partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
   };
+  wireVenuePicker('qr_venue');
   document.getElementById('qr_submit').onclick = async (e)=>{
     const btn=e.currentTarget;
     const err=document.getElementById('qr_err');
@@ -658,9 +688,11 @@ async function renderPlay(){
     const opponent_id = document.getElementById('qr_opp').value;
     const winner = document.getElementById('qr_winner').value;
     const whenVal = document.getElementById('qr_when').value;
+    const venue = getVenueValue('qr_venue');
     setLoading(btn,true,'Submitting...');
     const payload = {challenger_id:me.id, opponent_id, match_type, status:'accepted'};
     if(whenVal) payload.scheduled_at = new Date(whenVal).toISOString();
+    if(venue) payload.venue = venue;
     if(match_type==='doubles'){
       payload.challenger_partner_id = document.getElementById('qr_myPartner').value;
       payload.opponent_partner_id = document.getElementById('qr_oppPartner').value;
@@ -672,9 +704,53 @@ async function renderPlay(){
     if(rErr){ setLoading(btn,false); err.textContent = rErr.message; return; }
     renderPlay();
   };
+  const payBtn = document.getElementById('pay_submit');
+  if(payBtn){
+    payBtn.onclick = async (e)=>{
+      const btn=e.currentTarget;
+      const fileInput=document.getElementById('pay_file');
+      const err=document.getElementById('pay_err');
+      const file=fileInput.files[0];
+      if(!file){ err.textContent='Please choose a screenshot image.'; return; }
+      setLoading(btn,true,'Uploading...');
+      const month = new Date().toISOString().slice(0,7);
+      const path = `${me.id}/${Date.now()}-${file.name}`;
+      const {error:upErr} = await sb.storage.from('payment-screenshots').upload(path, file);
+      if(upErr){ setLoading(btn,false); err.textContent = upErr.message; return; }
+      const {error:insErr} = await sb.from('sttl_payment_proofs').insert({player_id:me.id, month, file_path:path});
+      if(insErr){ setLoading(btn,false); err.textContent = insErr.message; return; }
+      setLoading(btn,false);
+      btn.disabled = true;
+      err.style.color='var(--ok)';
+      err.textContent='Uploaded! Waiting for admin approval.';
+    };
+  }
 }
 
 async function nameOf(id){ const p = players.find(x=>x.id===id) || (id===me.id?me:null); return p? p.name : id?.slice(0,6); }
+
+function venuePickerHtml(prefix){
+  return `<label>Where are you playing</label>
+  <select id="${prefix}_select">${communities.map(c=>`<option value="${c.name}">${c.name}</option>`).join('')}<option value="__other__">Not listed — type it in</option></select>
+  <input id="${prefix}_other" placeholder="Enter the venue" class="hidden" style="margin-top:6px">`;
+}
+function wireVenuePicker(prefix){
+  document.getElementById(prefix+'_select').onchange = e=>{
+    document.getElementById(prefix+'_other').classList.toggle('hidden', e.target.value!=='__other__');
+  };
+}
+function getVenueValue(prefix){
+  const sel=document.getElementById(prefix+'_select');
+  return sel.value==='__other__' ? document.getElementById(prefix+'_other').value.trim() : sel.value;
+}
+function paymentUploadHtml(){
+  return `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+    <p class="muted">Pay <b>S$2</b> via PayNow using <b>${me.email}</b> as the payment reference, then upload your screenshot here for admin approval.</p>
+    <input type="file" id="pay_file" accept="image/*">
+    <button class="btn" id="pay_submit" style="margin-top:8px">Upload payment screenshot</button>
+    <div class="error" id="pay_err"></div>
+  </div>`;
+}
 
 window.respondChallenge = async (btn,id,status)=>{
   setLoading(btn,true,'Saving...');
@@ -732,6 +808,12 @@ function renderInfo(){
     <p class="muted">Example: Set scores 11–7, 9–11, 11–6, 11–8 → challenger wins 3 sets to 1, so the challenger wins the match.</p>
     <h2>Inactivity check-in</h2>
     <p>If you haven't played for 10 days in a row, we'll ask what's going on next time you log in, so admins can support you.</p>
+    <h2>How points are awarded</h2>
+    <p>Every player starts at <b>1000 points</b>. Once a result is accepted by both sides:</p>
+    <p>🏆 <b>Winner:</b> +15 points &nbsp; 😔 <b>Loser:</b> −10 points (never below a floor of 100)</p>
+    <p class="muted">Example: You're on 1000 points and you win — you move to 1015. Your opponent, also on 1000, drops to 990.</p>
+    <h2>Paying your S$2 monthly subscription (PayNow, no email needed)</h2>
+    <p>Pay <b>S$2</b> via PayNow, using <b>your account email address as the payment reference</b> so the admin can match it to you. Then go to the <i>Play</i> tab and upload a screenshot of the payment — it appears under Admin → Payment approvals, and your subscription activates once approved.</p>
   </div>
   <div class="card"><h2>Sin Ten Sports Shop</h2>
     <p>Your rating: <b>${me.rating}</b> → Tier: <span class="tag">${t.name}</span></p>
@@ -764,12 +846,31 @@ async function renderAdmin(){
   const {data:cfg} = await sb.from('sttl_app_config').select('*').eq('id',1).single();
   const {data:ccs} = await sb.from('sttl_communities').select('*').order('name');
   const notes = await sb.from('sttl_inactivity_notes').select('*, sttl_players!inner(name)').order('created_at',{ascending:false});
+  const {data:proofs} = await sb.from('sttl_payment_proofs').select('*, sttl_players!inner(name,email)').eq('status','pending').order('submitted_at',{ascending:true});
   app.innerHTML = `
   <div class="card"><h2>Admin settings</h2>
     <label><input type="checkbox" id="pinToggle" ${me.admin_pin_enabled?'checked':''}> Require PIN to open Admin tab</label>
     <label>Disable subscriptions for month (YYYY-MM, blank = none disabled)</label>
     <input id="disMonth" value="${cfg?.subscriptions_disabled_month||''}" placeholder="2026-09">
     <button class="btn" id="saveCfg" style="margin-top:10px">Save settings</button>
+  </div>
+  <div class="card"><h2>Payment approvals</h2>
+    ${(proofs&&proofs.length)? proofs.map(pf=>{
+      const url = sb.storage.from('payment-screenshots').getPublicUrl(pf.file_path).data.publicUrl;
+      return `<div style="border-bottom:1px solid var(--line);padding:10px 0">
+        <div class="row" style="align-items:center">
+          <a href="${url}" target="_blank"><img src="${url}" alt="payment screenshot" style="max-width:90px;max-height:90px;border-radius:6px;object-fit:cover"></a>
+          <div>
+            <div><b>${pf.sttl_players.name}</b> <span class="muted">(${pf.sttl_players.email||''})</span></div>
+            <div class="muted">For ${pf.month} · submitted ${fmtDateTime(pf.submitted_at)}</div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" onclick="approvePayment(this,'${pf.id}','${pf.player_id}')">Approve</button>
+          <button class="btn ghost" onclick="rejectPayment(this,'${pf.id}')">Reject</button>
+        </div>
+      </div>`;
+    }).join('') : '<p class="muted">No pending payment screenshots.</p>'}
   </div>
   <div class="card"><h2>Add a new player</h2>
     <div class="row">
@@ -786,19 +887,12 @@ async function renderAdmin(){
     <button class="btn" id="nu_go" style="margin-top:10px">Add player (auto-approved)</button>
   </div>
   <div class="card"><h2>Manage players</h2>
-    <div class="table-scroll"><table><tr><th>Name</th><th>Email</th><th>CC</th><th>Age</th><th>Approved</th><th>Subscribed</th><th>Last Login</th><th>Actions</th></tr>
-    ${(all||[]).map(p=>`<tr>
-      <td>${p.name}${p.is_admin?' <span class="tag">admin</span>':''}</td><td>${p.email||''}</td><td>${p.community_center}</td><td>${p.age}</td>
-      <td>${p.is_approved?'<span class="badge ok">Yes</span>':'<span class="badge warn">No</span>'}</td>
-      <td>${p.is_subscribed?'<span class="badge ok">Yes</span>':'<span class="badge muted">No</span>'}</td>
-      <td>${fmtDateTime(p.last_login_at)}</td>
-      <td>
-        ${!p.is_approved?`<button class="btn" onclick="approveUser(this,'${p.id}')">Approve</button>`:''}
-        <button class="btn ghost" onclick="editUser('${p.id}')">Edit</button>
-        <button class="btn ghost" style="color:var(--warn)" onclick="deleteUser(this,'${p.id}')">Remove</button>
-      </td>
-    </tr>`).join('')}
-    </table></div>
+    <label>Search (name, community, email or age)</label>
+    <input id="playerSearch" placeholder="Start typing to filter...">
+    <div id="playersTableWrap" class="wrap-table" style="margin-top:10px">
+      <table><tr><th>Player</th><th>CC</th><th>Age</th><th>Status</th><th>Last Login</th><th>Actions</th></tr>
+      <tbody id="playersTbody"></tbody></table>
+    </div>
   </div>
   <div class="card"><h2>Community centers</h2>
     <div class="row">${(ccs||[]).map(c=>`<span class="tag">${c.name} <a onclick="removeCC('${c.id}','${c.name.replace(/'/g,"\\'")}')" style="cursor:pointer">✕</a></span>`).join(' ')}</div>
@@ -817,6 +911,35 @@ async function renderAdmin(){
     me.admin_pin_enabled=pinToggle;
     renderAdmin();
   };
+  function playerRowHtml(p){
+    return `<tr>
+      <td><div>${p.name}${p.is_admin?' <span class="tag">admin</span>':''}</div><div class="muted" style="font-size:12px">${p.email||''}</div></td>
+      <td>${p.community_center}</td><td>${p.age}</td>
+      <td>${p.is_approved?'<span class="badge ok">Approved</span>':'<span class="badge warn">Pending</span>'}<br>${p.is_subscribed?'<span class="badge ok">Subscribed</span>':'<span class="badge muted">Not subscribed</span>'}</td>
+      <td>${fmtDateTime(p.last_login_at)}</td>
+      <td>
+        ${!p.is_approved?`<button class="btn" onclick="approveUser(this,'${p.id}')">Approve</button>`:''}
+        <button class="btn ghost" onclick="editUser('${p.id}')">Edit</button>
+        <button class="btn ghost" style="color:var(--warn)" onclick="deleteUser(this,'${p.id}')">Remove</button>
+      </td>
+    </tr>`;
+  }
+  function renderPlayerRows(list){
+    document.getElementById('playersTbody').innerHTML = list.length
+      ? list.map(playerRowHtml).join('')
+      : '<tr><td colspan="6" class="muted">No players match your search.</td></tr>';
+  }
+  renderPlayerRows(all||[]);
+  document.getElementById('playerSearch').oninput = (e)=>{
+    const q=e.target.value.trim().toLowerCase();
+    if(!q){ renderPlayerRows(all||[]); return; }
+    renderPlayerRows((all||[]).filter(p=>
+      (p.name||'').toLowerCase().includes(q) ||
+      (p.community_center||'').toLowerCase().includes(q) ||
+      (p.email||'').toLowerCase().includes(q) ||
+      String(p.age||'').includes(q)
+    ));
+  };
   document.getElementById('nu_go').onclick = async (e)=>{
     const btn=e.currentTarget;
     const name=document.getElementById('nu_name').value.trim();
@@ -826,6 +949,8 @@ async function renderAdmin(){
     const community_center=document.getElementById('nu_cc').value;
     const err=document.getElementById('nu_err');
     if(!name||!email||!pwOk(password)||!age){ err.textContent='Fill all fields; password needs upper/lower/number/special, 8+ chars.'; return; }
+    const nameErr = await validateName(name, email);
+    if(nameErr){ err.textContent = nameErr; return; }
     setLoading(btn,true,'Adding...');
     // Uses sbAdmin (a separate client instance) so this signUp never
     // disturbs the admin's own logged-in session.
@@ -852,6 +977,17 @@ async function renderAdmin(){
   };
 }
 window.approveUser = async (btn,id)=>{ setLoading(btn,true,'Approving...'); await sb.from('sttl_players').update({is_approved:true}).eq('id',id); renderAdmin(); };
+window.approvePayment = async (btn,proofId,playerId)=>{
+  setLoading(btn,true,'Approving...');
+  await sb.from('sttl_payment_proofs').update({status:'approved', reviewed_at:new Date().toISOString(), reviewed_by:me.id}).eq('id',proofId);
+  await sb.from('sttl_players').update({is_subscribed:true}).eq('id',playerId);
+  renderAdmin();
+};
+window.rejectPayment = async (btn,proofId)=>{
+  setLoading(btn,true,'Rejecting...');
+  await sb.from('sttl_payment_proofs').update({status:'rejected', reviewed_at:new Date().toISOString(), reviewed_by:me.id}).eq('id',proofId);
+  renderAdmin();
+};
 window.deleteUser = async (btn,id)=>{
   if(!confirm('Remove this player from the league?\n\nThis deletes their profile, ratings and match links. Their login will still exist in Supabase Auth — remove it there too if you want them fully gone.')) return;
   setLoading(btn,true,'Removing...');
@@ -872,11 +1008,16 @@ window.editUser = async (id)=>{
     <label>Community Center</label><input id="e_cc" value="${p.community_center}">
     <label><input type="checkbox" id="e_sub" ${p.is_subscribed?'checked':''}> Subscribed</label>
     <label><input type="checkbox" id="e_admin" ${p.is_admin?'checked':''}> Admin</label>
-    <div class="row" style="margin-top:12px"><button class="btn" onclick="saveEdit('${id}')">Save</button><button class="btn ghost" onclick="closeModal()">Cancel</button></div>`);
+    <div class="error" id="e_err"></div>
+    <div class="row" style="margin-top:12px"><button class="btn" onclick="saveEdit('${id}','${(p.email||'').replace(/'/g,"\\'")}')">Save</button><button class="btn ghost" onclick="closeModal()">Cancel</button></div>`);
 };
-window.saveEdit = async (id)=>{
+window.saveEdit = async (id,email)=>{
+  const err=document.getElementById('e_err');
+  const name=document.getElementById('e_name').value;
+  const nameErr = await validateName(name, email, id);
+  if(nameErr){ err.textContent = nameErr; return; }
   await sb.from('sttl_players').update({
-    name:document.getElementById('e_name').value,
+    name,
     age:parseInt(document.getElementById('e_age').value,10),
     community_center:document.getElementById('e_cc').value,
     is_subscribed:document.getElementById('e_sub').checked,
