@@ -90,8 +90,8 @@ a.link:hover{color:var(--accent)}
 
 <header>
   <div class="brand"><b>🇸🇬 <span class="ball">🏓</span> Singapore Table Tennis League</b><small>Play. Challenge. Climb the ranks.</small></div>
-  <div class="sponsor">Sponsored by <a href="https://www.sintensports.com.sg/" target="_blank">Sin Ten Sports Trading</a></div>
-  <div id="whoBar" class="sponsor"></div>
+  <div id="headerSponsor" class="sponsor">Sponsored by <a href="https://www.sintensports.com.sg/" target="_blank">Sin Ten Sports Trading</a></div>
+  <div id="whoBar" class="sponsor" style="text-align:right"></div>
 </header>
 
 <nav id="nav" class="hidden">
@@ -104,7 +104,7 @@ a.link:hover{color:var(--accent)}
 
 <main id="app"></main>
 <div id="modalRoot"></div>
-<footer>STTL Platform · demo build · Sponsored by Sin Ten Sports Trading</footer>
+<footer>STTL Platform<span id="footerSponsor"> · Sponsored by Sin Ten Sports Trading</span></footer>
 
 <script>
 const SUPABASE_URL = "https://gdvbplbqehrtrgiwwcja.supabase.co";
@@ -145,7 +145,12 @@ async function callFn(payload, needsAuth){
   }
 }
 
-let session=null, me=null, activeTab='play', players=[], communities=[];
+let session=null, me=null, activeTab='play', players=[], communities=[], sponsorVisible=true;
+function applySponsorVisibility(){
+  const h=document.getElementById('headerSponsor'), f=document.getElementById('footerSponsor');
+  if(h) h.style.display = sponsorVisible ? '' : 'none';
+  if(f) f.style.display = sponsorVisible ? '' : 'none';
+}
 
 const app=document.getElementById('app');
 const modalRoot=document.getElementById('modalRoot');
@@ -436,7 +441,7 @@ async function loadMeAndBoot(){
   sb.from('sttl_players').update({last_login_at:new Date().toISOString()}).eq('id',me.id).then(()=>{});
   me.last_login_at = previousLoginAt;
   nav.classList.remove('hidden');
-  document.getElementById('whoBar').textContent = `${me.name} · ${me.community_center}`;
+  document.getElementById('whoBar').innerHTML = `<div>${me.name} · ${me.community_center}</div><div style="font-size:11px;opacity:.85">${me.is_subscribed?'Subscribed':'Not subscribed'} · Free trial until ${fmtDate(me.trial_ends_on)}</div>`;
   document.getElementById('adminNavBtn').classList.toggle('hidden', !me.is_admin);
   document.querySelectorAll('.navbtn[data-tab]').forEach(b=>{
     b.onclick=()=>{ if(b.dataset.tab==='play' && !canPlay(me)) return; activeTab=b.dataset.tab; renderTab(); };
@@ -649,12 +654,7 @@ async function renderPlay(){
     <button class="btn" id="qr_submit" style="margin-top:12px">Submit for opponent's approval</button>
     <div class="error" id="qr_err"></div>
   </div>
-  <div class="card"><h2>Your status</h2>
-    <p><span class="badge ${me.is_subscribed?'ok':'warn'}">${me.is_subscribed?'Subscribed':'Not subscribed'}</span>
-    <span class="badge ${isTrialActive(me)?'ok':'muted'}">Free trial until ${fmtDate(me.trial_ends_on)}</span>
-    <span class="badge muted">Rating ${me.rating}</span></p>
-    ${(!me.is_subscribed && !isTrialActive(me)) ? paymentUploadHtml() : ''}
-  </div>`;
+  ${(!me.is_subscribed && !isTrialActive(me)) ? `<div class="card"><h2>Subscribe to keep playing</h2>${paymentUploadHtml()}</div>` : ''}`;
   document.getElementById('mtype').onchange = e=>{
     document.getElementById('partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
   };
@@ -775,6 +775,9 @@ window.submitScore = async (btn,challengeId)=>{
   if(error){ setLoading(btn,false); document.getElementById('sc_err').textContent = error.message; return; }
   closeModal(); renderPlay();
 };
+function expectedScore(ratingA, ratingB){
+  return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+}
 window.ackScore = async (btn,resultId)=>{
   setLoading(btn,true,'Recording...');
   const {data:res} = await sb.from('sttl_match_results').select('*').eq('id',resultId).single();
@@ -784,8 +787,15 @@ window.ackScore = async (btn,resultId)=>{
   const loserId = res.winner_side==='challenger'? c.opponent_id : c.challenger_id;
   const {data:w} = await sb.from('sttl_players').select('rating').eq('id',winnerId).single();
   const {data:l} = await sb.from('sttl_players').select('rating').eq('id',loserId).single();
-  await sb.from('sttl_players').update({rating:(w?.rating||1000)+15, last_played_on:new Date().toISOString().slice(0,10)}).eq('id',winnerId);
-  await sb.from('sttl_players').update({rating:Math.max(100,(l?.rating||1000)-10), last_played_on:new Date().toISOString().slice(0,10)}).eq('id',loserId);
+  const winnerRating = w?.rating||1000, loserRating = l?.rating||1000;
+  // Upset-sensitive scoring: an underdog beating a much higher-rated player
+  // gains close to the full K; a heavy favourite beating a weak underdog
+  // gains very little. Points moved are always equal and opposite.
+  const K = 32;
+  const expectedWinner = expectedScore(winnerRating, loserRating);
+  const delta = Math.max(1, Math.round(K * (1 - expectedWinner)));
+  await sb.from('sttl_players').update({rating:winnerRating+delta, last_played_on:new Date().toISOString().slice(0,10)}).eq('id',winnerId);
+  await sb.from('sttl_players').update({rating:Math.max(100,loserRating-delta), last_played_on:new Date().toISOString().slice(0,10)}).eq('id',loserId);
   renderPlay();
 };
 
@@ -809,9 +819,10 @@ function renderInfo(){
     <h2>Inactivity check-in</h2>
     <p>If you haven't played for 10 days in a row, we'll ask what's going on next time you log in, so admins can support you.</p>
     <h2>How points are awarded</h2>
-    <p>Every player starts at <b>1000 points</b>. Once a result is accepted by both sides:</p>
-    <p>🏆 <b>Winner:</b> +15 points &nbsp; 😔 <b>Loser:</b> −10 points (never below a floor of 100)</p>
-    <p class="muted">Example: You're on 1000 points and you win — you move to 1015. Your opponent, also on 1000, drops to 990.</p>
+    <p>Every player starts at <b>1000 points</b>. Points move based on how surprising the result was — similar to the rating systems used in ITTF rankings — not a flat amount every time:</p>
+    <p>🏆 An <b>underdog beating a much higher-rated player</b> gains a big jump in points, and the elite player drops by the same amount.</p>
+    <p>😐 A <b>heavy favourite beating a clear underdog</b> only gains a few points (it was expected), and the underdog only loses a few.</p>
+    <p class="muted">Example: You're rated 1000 and you beat someone rated 1200 — a genuine upset — you could gain close to 30 points while they drop the same. But if you're rated 1200 and beat someone rated 1000 as expected, you might only gain 3–5 points. Ratings never drop below 100.</p>
     <h2>Paying your S$2 monthly subscription (PayNow, no email needed)</h2>
     <p>Pay <b>S$2</b> via PayNow, using <b>your account email address as the payment reference</b> so the admin can match it to you. Then go to the <i>Play</i> tab and upload a screenshot of the payment — it appears under Admin → Payment approvals, and your subscription activates once approved.</p>
   </div>
@@ -850,6 +861,7 @@ async function renderAdmin(){
   app.innerHTML = `
   <div class="card"><h2>Admin settings</h2>
     <label><input type="checkbox" id="pinToggle" ${me.admin_pin_enabled?'checked':''}> Require PIN to open Admin tab</label>
+    <label><input type="checkbox" id="sponsorToggle" ${sponsorVisible?'checked':''}> Show sponsor details across the app</label>
     <label>Disable subscriptions for month (YYYY-MM, blank = none disabled)</label>
     <input id="disMonth" value="${cfg?.subscriptions_disabled_month||''}" placeholder="2026-09">
     <button class="btn" id="saveCfg" style="margin-top:10px">Save settings</button>
@@ -905,10 +917,13 @@ async function renderAdmin(){
   document.getElementById('saveCfg').onclick = async (e)=>{
     setLoading(e.currentTarget,true,'Saving...');
     const pinToggle=document.getElementById('pinToggle').checked;
+    const sponsorToggle=document.getElementById('sponsorToggle').checked;
     const disMonth=document.getElementById('disMonth').value.trim()||null;
     await sb.from('sttl_players').update({admin_pin_enabled:pinToggle}).eq('id',me.id);
-    await sb.from('sttl_app_config').update({subscriptions_disabled_month:disMonth}).eq('id',1);
+    await sb.from('sttl_app_config').update({subscriptions_disabled_month:disMonth, sponsor_visible:sponsorToggle}).eq('id',1);
     me.admin_pin_enabled=pinToggle;
+    sponsorVisible=sponsorToggle;
+    applySponsorVisibility();
     renderAdmin();
   };
   function playerRowHtml(p){
@@ -1028,6 +1043,9 @@ window.saveEdit = async (id,email)=>{
 
 // ---------- INIT ----------
 (async ()=>{
+  const {data:cfg} = await sb.from('sttl_app_config').select('sponsor_visible').eq('id',1).maybeSingle();
+  sponsorVisible = cfg?.sponsor_visible !== false;
+  applySponsorVisibility();
   const {data:{session:s}} = await sb.auth.getSession();
   if(s){ session=s; await loadMeAndBoot(); } else { renderLogin(); }
 })();
