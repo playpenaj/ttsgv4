@@ -57,8 +57,9 @@ button.btn:disabled:hover{background:var(--accent)}
 .badge.muted{background:#eef1f5;color:var(--muted)}
 .muted{color:var(--muted);font-size:13px}
 .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
-.wrap-table table{min-width:0;width:100%;table-layout:fixed}
-.wrap-table td,.wrap-table th{white-space:normal;word-break:break-word}
+.player-item{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px}
+.player-item-head{margin-bottom:6px}
+.player-item-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted);margin-top:4px}
 table{width:100%;border-collapse:collapse;font-size:14px;min-width:420px}
 th,td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 tr:hover td{background:#f7f9fc}
@@ -98,7 +99,7 @@ a.link:hover{color:var(--accent)}
 <nav id="nav" class="hidden">
   <button data-tab="dashboard" class="navbtn">Dashboard</button>
   <button data-tab="play" class="navbtn">Play</button>
-  <button data-tab="info" class="navbtn">Info &amp; Shop</button>
+  <button data-tab="info" class="navbtn">Info</button>
   <button data-tab="admin" id="adminNavBtn" class="navbtn hidden">Admin</button>
   <button id="logoutBtn" class="navbtn" style="margin-left:auto">Logout</button>
 </nav>
@@ -230,7 +231,7 @@ async function renderGuestDashboard(){
   const singlesBoard = all.filter(p=>p.singlesWins+p.singlesLosses>0).sort((a,b)=>b.singlesWins-a.singlesWins || (b.singlesWins-b.singlesLosses)-(a.singlesWins-a.singlesLosses));
   const doublesBoard = all.filter(p=>p.doublesWins+p.doublesLosses>0).sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
   const guestBoardRows = (list, wKey, lKey) => list.slice(0,10).map((p,i)=>`
-    <tr><td>${i+1}</td><td>${p.name}</td><td>${p[wKey]}</td><td>${p[lKey]}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No matches recorded yet.</td></tr>';
+    <tr><td>${i+1}</td><td>${p.name}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No matches recorded yet.</td></tr>';
 
   app.innerHTML = `
   <div class="card"><button class="btn ghost" id="guest_back">← Back to Login</button></div>
@@ -239,15 +240,15 @@ async function renderGuestDashboard(){
     <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${mostPlayed.name} — ${mostPlayed.played} matches`:'-'}</p>
   </div>
   <div class="card"><h2>Overall leaderboard (by points)</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th></tr>
-    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${p.name}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td></tr>`).join('')}
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th><th>Win %</th></tr>
+    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${p.name}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('')}
     </table></div>
   </div>
   <div class="card"><h2>Singles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${guestBoardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${guestBoardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
   </div>
   <div class="card"><h2>Doubles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${guestBoardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${guestBoardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
   </div>`;
   document.getElementById('guest_back').onclick = renderLogin;
 }
@@ -564,6 +565,10 @@ async function computeLeagueStats(){
   return merged;
 }
 
+function winPct(wins, losses){
+  const total = (wins||0) + (losses||0);
+  return total ? Math.round((wins/total)*100) + '%' : '—';
+}
 async function renderDashboard(){
   showLoading('Loading dashboard…');
   const all = await computeLeagueStats();
@@ -576,13 +581,14 @@ async function renderDashboard(){
   const mine = all.find(p=>p.id===me.id) || {wins:0,losses:0,played:0,rating:me.rating};
 
   const boardRows = (list, wKey, lKey) => list.slice(0,10).map((p,i)=>`
-    <tr><td>${i+1}</td><td>${p.name}${p.id===me.id?' <span class="tag">you</span>':''}</td><td>${p[wKey]}</td><td>${p[lKey]}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No matches recorded yet.</td></tr>';
+    <tr><td>${i+1}</td><td>${p.name}${p.id===me.id?' <span class="tag">you</span>':''}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No matches recorded yet.</td></tr>';
 
   app.innerHTML = `
   <div class="card"><h2>Your status</h2>
     <div class="row">
       <div class="card" style="margin:0"><div class="muted">Points (rating)</div><div style="font-size:26px;font-weight:700">${mine.rating}</div></div>
       <div class="card" style="margin:0"><div class="muted">Record</div><div style="font-size:26px;font-weight:700">${mine.wins}W – ${mine.losses}L</div></div>
+      <div class="card" style="margin:0"><div class="muted">Win %</div><div style="font-size:26px;font-weight:700">${winPct(mine.wins,mine.losses)}</div></div>
       <div class="card" style="margin:0"><div class="muted">Overall rank</div><div style="font-size:26px;font-weight:700">#${myRank||'-'} <span class="muted" style="font-size:14px">of ${byRating.length}</span></div></div>
     </div>
     <p class="muted" style="margin-top:10px">Last login: ${fmtDateTime(me.last_login_at)}</p>
@@ -592,15 +598,15 @@ async function renderDashboard(){
     <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${mostPlayed.name} — ${mostPlayed.played} matches`:'-'}</p>
   </div>
   <div class="card"><h2>Overall leaderboard (by points)</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th></tr>
-    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${p.name}${p.id===me.id?' <span class="tag">you</span>':''}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td></tr>`).join('')}
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th><th>Win %</th></tr>
+    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${p.name}${p.id===me.id?' <span class="tag">you</span>':''}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('')}
     </table></div>
   </div>
   <div class="card"><h2>Singles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
   </div>
   <div class="card"><h2>Doubles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
   </div>`;
 }
 
@@ -860,8 +866,11 @@ function renderInfo(){
     <p class="muted">Example: You're rated 1000 and you beat someone rated 1200 — a genuine upset — you could gain close to 30 points while they drop the same. But if you're rated 1200 and beat someone rated 1000 as expected, you might only gain 3–5 points. Ratings never drop below 100.</p>
     <h2>Paying your S$2 monthly subscription (PayNow, no email needed)</h2>
     <p>Pay <b>S$2</b> via PayNow, using <b>your account email address as the payment reference</b> so the admin can match it to you. Then go to the <i>Play</i> tab and upload a screenshot of the payment — it appears under Admin → Payment approvals, and your subscription activates once approved.</p>
-  </div>
-  <div class="card"><h2>Sin Ten Sports Shop</h2>
+  </div>`;
+  // Shop / discount tiers — commented out for now. To bring it back, remove
+  // this comment block and the one closing it below.
+  /*
+  app.innerHTML += `<div class="card"><h2>Sin Ten Sports Shop</h2>
     <p>Your rating: <b>${me.rating}</b> → Tier: <span class="tag">${t.name}</span></p>
     <p>You get <b>${t.pct}% off</b> at <a class="link" onclick="window.open('https://www.sintensports.com.sg/','_blank')">Sin Ten Sports Trading</a>. Show your profile at checkout.</p>
     <div class="table-scroll"><table><tr><th>Tier</th><th>Rating</th><th>Discount</th></tr>
@@ -869,6 +878,7 @@ function renderInfo(){
     <tr><td>Silver</td><td>1150–1299</td><td>10%</td></tr>
     <tr><td>Gold</td><td>1300+</td><td>15%</td></tr></table></div>
   </div>`;
+  */
 }
 
 // ---------- ADMIN ----------
@@ -936,10 +946,7 @@ async function renderAdmin(){
   <div class="card"><h2>Manage players</h2>
     <label>Search (name, community, email or age)</label>
     <input id="playerSearch" placeholder="Start typing to filter...">
-    <div id="playersTableWrap" class="wrap-table" style="margin-top:10px">
-      <table><tr><th>Player</th><th>CC</th><th>Age</th><th>Status</th><th>Last Login</th><th>Actions</th></tr>
-      <tbody id="playersTbody"></tbody></table>
-    </div>
+    <div id="playersList" style="margin-top:10px"></div>
   </div>
   <div class="card"><h2>Community centers</h2>
     <div class="row">${(ccs||[]).map(c=>`<span class="tag">${c.name} <a onclick="removeCC('${c.id}','${c.name.replace(/'/g,"\\'")}')" style="cursor:pointer">✕</a></span>`).join(' ')}</div>
@@ -962,22 +969,31 @@ async function renderAdmin(){
     renderAdmin();
   };
   function playerRowHtml(p){
-    return `<tr>
-      <td><div>${p.name}${p.is_admin?' <span class="tag">admin</span>':''}</div><div class="muted" style="font-size:12px">${p.email||''}</div></td>
-      <td>${p.community_center}</td><td>${p.age}</td>
-      <td>${p.is_approved?'<span class="badge ok">Approved</span>':'<span class="badge warn">Pending</span>'}<br>${p.is_subscribed?'<span class="badge ok">Subscribed</span>':'<span class="badge muted">Not subscribed</span>'}</td>
-      <td>${fmtDateTime(p.last_login_at)}</td>
-      <td>
-        ${!p.is_approved?`<button class="btn" onclick="approveUser(this,'${p.id}')">Approve</button>`:''}
-        <button class="btn ghost" onclick="editUser('${p.id}')">Edit</button>
-        <button class="btn ghost" style="color:var(--warn)" onclick="deleteUser(this,'${p.id}')">Remove</button>
-      </td>
-    </tr>`;
+    return `<div class="player-item">
+      <div class="player-item-head">
+        <div>👤 <b>${p.name}</b>${p.is_admin?' <span class="tag">admin</span>':''}</div>
+        <div class="muted" style="font-size:12px">✉️ ${p.email||'—'}</div>
+      </div>
+      <div class="player-item-meta">
+        <span>📍 ${p.community_center}</span>
+        <span>🎂 ${p.age}</span>
+        <span>🕒 ${fmtDateTime(p.last_login_at)}</span>
+      </div>
+      <div class="player-item-meta">
+        ${p.is_approved?'<span class="badge ok">✅ Approved</span>':'<span class="badge warn">⏳ Pending</span>'}
+        ${p.is_subscribed?'<span class="badge ok">💳 Subscribed</span>':'<span class="badge muted">🚫 Not subscribed</span>'}
+      </div>
+      <div class="row" style="margin-top:8px">
+        ${!p.is_approved?`<button class="btn" onclick="approveUser(this,'${p.id}')">✅ Approve</button>`:''}
+        <button class="btn ghost" onclick="editUser('${p.id}')">✏️ Edit</button>
+        <button class="btn ghost" style="color:var(--warn)" onclick="deleteUser(this,'${p.id}')">🗑️ Remove</button>
+      </div>
+    </div>`;
   }
   function renderPlayerRows(list){
-    document.getElementById('playersTbody').innerHTML = list.length
+    document.getElementById('playersList').innerHTML = list.length
       ? list.map(playerRowHtml).join('')
-      : '<tr><td colspan="6" class="muted">No players match your search.</td></tr>';
+      : '<p class="muted">No players match your search.</p>';
   }
   renderPlayerRows(all||[]);
   document.getElementById('playerSearch').oninput = (e)=>{
