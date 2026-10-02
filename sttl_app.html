@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Singapore Table Tennis League</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%93%3C/text%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
@@ -203,6 +204,7 @@ function renderLogin(){
       <button class="btn ghost" id="li_signup">Create account</button>
     </div>
     <p><a class="link" id="li_forgot">Forgot password?</a></p>
+    <button class="btn ghost" id="li_guest" style="width:100%;margin-top:10px">View Dashboard as Guest</button>
   </div>`;
   document.getElementById('li_go').onclick = async (e)=>{
     const btn=e.currentTarget;
@@ -215,6 +217,39 @@ function renderLogin(){
   };
   document.getElementById('li_signup').onclick = renderSignup;
   document.getElementById('li_forgot').onclick = renderForgot;
+  document.getElementById('li_guest').onclick = renderGuestDashboard;
+}
+
+async function renderGuestDashboard(){
+  nav.classList.add('hidden');
+  showLoading('Loading dashboard…');
+  const all = await computeLeagueStats();
+  const byRating = [...all].sort((a,b)=>b.rating-a.rating);
+  const champion = byRating[0];
+  const mostPlayed = [...all].sort((a,b)=>b.played-a.played)[0];
+  const singlesBoard = all.filter(p=>p.singlesWins+p.singlesLosses>0).sort((a,b)=>b.singlesWins-a.singlesWins || (b.singlesWins-b.singlesLosses)-(a.singlesWins-a.singlesLosses));
+  const doublesBoard = all.filter(p=>p.doublesWins+p.doublesLosses>0).sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
+  const guestBoardRows = (list, wKey, lKey) => list.slice(0,10).map((p,i)=>`
+    <tr><td>${i+1}</td><td>${p.name}</td><td>${p[wKey]}</td><td>${p[lKey]}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No matches recorded yet.</td></tr>';
+
+  app.innerHTML = `
+  <div class="card"><button class="btn ghost" id="guest_back">← Back to Login</button></div>
+  <div class="card"><h2>League highlights</h2>
+    <p>🏆 <b>Overall Champion (points):</b> ${champion? `${champion.name} — ${champion.rating} pts`:'-'}</p>
+    <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${mostPlayed.name} — ${mostPlayed.played} matches`:'-'}</p>
+  </div>
+  <div class="card"><h2>Overall leaderboard (by points)</h2>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th></tr>
+    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${p.name}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td></tr>`).join('')}
+    </table></div>
+  </div>
+  <div class="card"><h2>Singles leaderboard</h2>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${guestBoardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
+  </div>
+  <div class="card"><h2>Doubles leaderboard</h2>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th></tr>${guestBoardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
+  </div>`;
+  document.getElementById('guest_back').onclick = renderLogin;
 }
 
 async function renderSignup(){
@@ -606,6 +641,28 @@ async function renderPlay(){
   }));
 
   app.innerHTML = `
+  <div class="card"><h2>Record a match you've already played</h2>
+    <p class="muted">For games played outside a formal challenge — pick who played and who won. Your opponent must approve it before the score list updates.</p>
+    <label>Match type</label>
+    <select id="qr_type"><option value="singles">Singles</option><option value="doubles">Doubles</option></select>
+    <label>Opponent</label>
+    <select id="qr_opp">${players.map(p=>`<option value="${p.id}">${p.name} (${p.community_center})</option>`).join('')}</select>
+    <div id="qr_partnerBox" class="hidden">
+      <label>Your partner</label><select id="qr_myPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
+      <label>Opponent's partner</label><select id="qr_oppPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
+    </div>
+    <label>Winner</label>
+    <select id="qr_winner"><option value="me">Me</option><option value="opp">Opponent</option></select>
+    <label>Date played</label>
+    <input type="datetime-local" id="qr_when">
+    ${venuePickerHtml('qr_venue')}
+    <button class="btn" id="qr_submit" style="margin-top:12px">Submit for opponent's approval</button>
+    <div class="error" id="qr_err"></div>
+  </div>
+  <div class="card"><h2>Your matches</h2>
+    <p class="muted">Pick the winner — your opponent must accept it for the points to reflect.</p>
+    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>When</th><th>Venue</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=6 class="muted">No accepted matches yet.</td></tr>'}</table></div>
+  </div>
   <div class="card"><h2>Challenge someone</h2>
     <label>Match type</label>
     <select id="mtype"><option value="singles">Singles</option><option value="doubles">Doubles</option></select>
@@ -631,28 +688,6 @@ async function renderPlay(){
   </div>
   <div class="card"><h2>Outgoing challenges (pending)</h2>
     ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})${c.scheduled_at?` — ${fmtDateTime(c.scheduled_at)}`:''}${c.venue?` at ${c.venue}`:''}</div>`))).join(''):'<p class="muted">None right now.</p>'}
-  </div>
-  <div class="card"><h2>Your matches</h2>
-    <p class="muted">Pick the winner — your opponent must accept it for the points to reflect.</p>
-    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>When</th><th>Venue</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=6 class="muted">No accepted matches yet.</td></tr>'}</table></div>
-  </div>
-  <div class="card"><h2>Record a match you've already played</h2>
-    <p class="muted">For games played outside a formal challenge — pick who played and who won. Your opponent must approve it before the score list updates.</p>
-    <label>Match type</label>
-    <select id="qr_type"><option value="singles">Singles</option><option value="doubles">Doubles</option></select>
-    <label>Opponent</label>
-    <select id="qr_opp">${players.map(p=>`<option value="${p.id}">${p.name} (${p.community_center})</option>`).join('')}</select>
-    <div id="qr_partnerBox" class="hidden">
-      <label>Your partner</label><select id="qr_myPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
-      <label>Opponent's partner</label><select id="qr_oppPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
-    </div>
-    <label>Winner</label>
-    <select id="qr_winner"><option value="me">Me</option><option value="opp">Opponent</option></select>
-    <label>Date played</label>
-    <input type="datetime-local" id="qr_when">
-    ${venuePickerHtml('qr_venue')}
-    <button class="btn" id="qr_submit" style="margin-top:12px">Submit for opponent's approval</button>
-    <div class="error" id="qr_err"></div>
   </div>
   ${(!me.is_subscribed && !isTrialActive(me)) ? `<div class="card"><h2>Subscribe to keep playing</h2>${paymentUploadHtml()}</div>` : ''}`;
   document.getElementById('mtype').onchange = e=>{
