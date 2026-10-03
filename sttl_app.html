@@ -597,9 +597,10 @@ async function renderMatchHistory(matchType){
       ? `${await nameOf(c.opponent_id)} &amp; ${await nameOf(c.opponent_partner_id)}`
       : await nameOf(c.opponent_id);
     const winnerText = r.winner_side==='challenger' ? side1 : side2;
-    return `<tr><td>${fmtDateTime(r.recorded_at)}</td><td>${side1}</td><td>${side2}</td><td>🏆 ${winnerText}</td></tr>`;
+    const pointsText = r.rating_delta ? `<span class="badge ok">+${r.rating_delta}</span> <span class="badge warn">−${r.rating_delta}</span>` : '<span class="muted">—</span>';
+    return `<tr><td>${fmtDateTime(r.recorded_at)}</td><td>${side1}</td><td>${side2}</td><td>🏆 ${winnerText}</td><td>${pointsText}</td></tr>`;
   }));
-  return rows.join('') || '<tr><td colspan="4" class="muted">No matches recorded yet.</td></tr>';
+  return rows.join('') || '<tr><td colspan="5" class="muted">No matches recorded yet.</td></tr>';
 }
 
 async function renderDashboard(){
@@ -663,10 +664,10 @@ async function renderDashboard(){
     <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
   </div>
   <div class="card"><h2>Singles match history</h2>
-    <div class="table-scroll"><table><tr><th>When</th><th>Player 1</th><th>Player 2</th><th>Winner</th></tr>${singlesHistory}</table></div>
+    <div class="table-scroll"><table><tr><th>When</th><th>Player 1</th><th>Player 2</th><th>Winner</th><th>Points</th></tr>${singlesHistory}</table></div>
   </div>
   <div class="card"><h2>Doubles match history</h2>
-    <div class="table-scroll"><table><tr><th>When</th><th>Team 1</th><th>Team 2</th><th>Winner</th></tr>${doublesHistory}</table></div>
+    <div class="table-scroll"><table><tr><th>When</th><th>Team 1</th><th>Team 2</th><th>Winner</th><th>Points</th></tr>${doublesHistory}</table></div>
   </div>`;
 
   document.getElementById('photo_submit').onclick = async (e)=>{
@@ -959,7 +960,10 @@ function renderInfo(){
     <p>Every player starts at <b>1000 points</b>. Points move based on how surprising the result was — similar to the rating systems used in ITTF rankings — not a flat amount every time:</p>
     <p>🏆 An <b>underdog beating a much higher-rated player</b> gains a big jump in points, and the elite player drops by the same amount.</p>
     <p>😐 A <b>heavy favourite beating a clear underdog</b> only gains a few points (it was expected), and the underdog only loses a few.</p>
-    <p class="muted">Example: You're rated 1000 and you beat someone rated 1200 — a genuine upset — you could gain close to 30 points while they drop the same. But if you're rated 1200 and beat someone rated 1000 as expected, you might only gain 3–5 points. Ratings never drop below 100.</p>
+    <p class="muted">Example: You're rated 1000 and you beat someone rated 1200 — a genuine upset — you'd gain 24 points, and they'd drop 24. But if you're rated 1200 and beat someone rated 1000 as expected, you'd only gain 8 points. Ratings never drop below 100.</p>
+    <h2>How doubles scoring works</h2>
+    <p>Doubles uses the same idea, but based on each <b>team's average rating</b> rather than one person's. Both partners on the winning team gain the same number of points, and both partners on the losing team lose that same number — teammates always move together.</p>
+    <p class="muted">Example: Team A is rated 1000 and 1100 (team average 1050). Team B is rated 1200 and 1300 (team average 1250). If Team A pulls off the upset, both Team A players gain 24 points each, while both Team B players drop 24 points each. If Team B wins as expected instead, each player on both sides only moves 8 points.</p>
     <h2>Paying your S$2 monthly subscription (PayNow, no email needed)</h2>
     <p>Pay <b>S$2</b> via PayNow, using <b>your account email address as the payment reference</b> so the admin can match it to you. Then go to the <i>Play</i> tab and upload a screenshot of the payment — it appears under Admin → Payment approvals, and your subscription activates once approved.</p>
   </div>`;
