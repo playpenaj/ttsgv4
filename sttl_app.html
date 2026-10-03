@@ -182,6 +182,7 @@ async function validateName(name, email, excludeId){
   if(clash) return 'That name is already taken by another player — please choose a different display name.';
   return null;
 }
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function daysSince(d){ if(!d) return 9999; return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
 function fmtDate(d){return d? new Date(d).toLocaleDateString():'-';}
 function fmtDateTime(d){return d? new Date(d).toLocaleString():'Never';}
@@ -231,7 +232,7 @@ async function renderGuestDashboard(){
   const singlesBoard = all.filter(p=>p.singlesWins+p.singlesLosses>0).sort((a,b)=>b.singlesWins-a.singlesWins || (b.singlesWins-b.singlesLosses)-(a.singlesWins-a.singlesLosses));
   const doublesBoard = all.filter(p=>p.doublesWins+p.doublesLosses>0).sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
   const guestBoardRows = (list, wKey, lKey) => list.slice(0,10).map((p,i)=>`
-    <tr><td>${i+1}</td><td>${p.name}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No matches recorded yet.</td></tr>';
+    <tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No matches recorded yet.</td></tr>';
 
   app.innerHTML = `
   <div class="card"><button class="btn ghost" id="guest_back">← Back to Login</button></div>
@@ -241,7 +242,7 @@ async function renderGuestDashboard(){
   </div>
   <div class="card"><h2>Overall leaderboard (by points)</h2>
     <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th><th>Win %</th></tr>
-    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${p.name}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('')}
+    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('')}
     </table></div>
   </div>
   <div class="card"><h2>Singles leaderboard</h2>
@@ -477,7 +478,7 @@ async function loadMeAndBoot(){
   sb.from('sttl_players').update({last_login_at:new Date().toISOString()}).eq('id',me.id).then(()=>{});
   me.last_login_at = previousLoginAt;
   nav.classList.remove('hidden');
-  document.getElementById('whoBar').innerHTML = `<div>${me.name} · ${me.community_center}</div><div style="font-size:11px;opacity:.85">${me.is_subscribed?'Subscribed':'Not subscribed'} · Free trial until ${fmtDate(me.trial_ends_on)}</div>`;
+  document.getElementById('whoBar').innerHTML = `<div>${esc(me.name)} · ${esc(me.community_center)}</div><div style="font-size:11px;opacity:.85">${me.is_subscribed?'Subscribed':'Not subscribed'} · Free trial until ${fmtDate(me.trial_ends_on)}</div>`;
   document.getElementById('adminNavBtn').classList.toggle('hidden', !me.is_admin);
   document.querySelectorAll('.navbtn[data-tab]').forEach(b=>{
     b.onclick=()=>{ if(b.dataset.tab==='play' && !canPlay(me)) return; activeTab=b.dataset.tab; renderTab(); };
@@ -540,7 +541,7 @@ async function refreshPlayers(){
 }
 
 async function computeLeagueStats(){
-  const {data:allPlayers} = await sb.from('sttl_players').select('id,name,rating,is_approved');
+  const {data:allPlayers} = await sb.from('sttl_players').select('id,name,rating,is_approved,photo_url');
   const {data:results} = await sb.from('sttl_match_results').select('*, sttl_challenges(*)').eq('acknowledged',true);
   const stat = {}; // id -> {wins,losses,played,singlesWins,singlesLosses,doublesWins,doublesLosses}
   const ensure = id => stat[id] || (stat[id] = {wins:0,losses:0,played:0,singlesWins:0,singlesLosses:0,doublesWins:0,doublesLosses:0});
@@ -558,7 +559,7 @@ async function computeLeagueStats(){
     loseTeam.forEach(id=>{ const s=ensure(id); s.losses++; s.played++; if(isDoubles) s.doublesLosses++; else s.singlesLosses++; });
   });
   const merged = (allPlayers||[]).filter(p=>p.is_approved).map(p=>({
-    id:p.id, name:p.name, rating:p.rating,
+    id:p.id, name:p.name, rating:p.rating, photo_url:p.photo_url,
     ...{wins:0,losses:0,played:0,singlesWins:0,singlesLosses:0,doublesWins:0,doublesLosses:0},
     ...(stat[p.id]||{})
   }));
@@ -569,6 +570,38 @@ function winPct(wins, losses){
   const total = (wins||0) + (losses||0);
   return total ? Math.round((wins/total)*100) + '%' : '—';
 }
+function ratingLevel(r){
+  if(r>=2700) return 'Pro';
+  if(r>=2200) return 'Elite';
+  if(r>=1700) return 'Advanced';
+  if(r>=1200) return 'Intermediate';
+  return 'Beginner';
+}
+function avatarHtml(p, size){
+  size = size||26;
+  return p.photo_url
+    ? `<img src="${p.photo_url}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:6px">`
+    : `<span style="display:inline-block;width:${size}px;height:${size}px;border-radius:50%;background:var(--line);text-align:center;line-height:${size}px;font-size:${Math.floor(size*0.5)}px;vertical-align:middle;margin-right:6px">👤</span>`;
+}
+async function renderMatchHistory(matchType){
+  const {data} = await sb.from('sttl_match_results')
+    .select('*, sttl_challenges!inner(match_type,challenger_id,opponent_id,challenger_partner_id,opponent_partner_id,venue,scheduled_at)')
+    .eq('acknowledged',true).eq('sttl_challenges.match_type',matchType)
+    .order('recorded_at',{ascending:false}).limit(25);
+  const rows = await Promise.all((data||[]).map(async r=>{
+    const c = r.sttl_challenges;
+    const side1 = matchType==='doubles'
+      ? `${await nameOf(c.challenger_id)} &amp; ${await nameOf(c.challenger_partner_id)}`
+      : await nameOf(c.challenger_id);
+    const side2 = matchType==='doubles'
+      ? `${await nameOf(c.opponent_id)} &amp; ${await nameOf(c.opponent_partner_id)}`
+      : await nameOf(c.opponent_id);
+    const winnerText = r.winner_side==='challenger' ? side1 : side2;
+    return `<tr><td>${fmtDateTime(r.recorded_at)}</td><td>${side1}</td><td>${side2}</td><td>🏆 ${winnerText}</td></tr>`;
+  }));
+  return rows.join('') || '<tr><td colspan="4" class="muted">No matches recorded yet.</td></tr>';
+}
+
 async function renderDashboard(){
   showLoading('Loading dashboard…');
   const all = await computeLeagueStats();
@@ -578,15 +611,27 @@ async function renderDashboard(){
   const mostPlayed = [...all].sort((a,b)=>b.played-a.played)[0];
   const singlesBoard = all.filter(p=>p.singlesWins+p.singlesLosses>0).sort((a,b)=>b.singlesWins-a.singlesWins || (b.singlesWins-b.singlesLosses)-(a.singlesWins-a.singlesLosses));
   const doublesBoard = all.filter(p=>p.doublesWins+p.doublesLosses>0).sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
-  const mine = all.find(p=>p.id===me.id) || {wins:0,losses:0,played:0,rating:me.rating};
+  const mine = all.find(p=>p.id===me.id) || {wins:0,losses:0,played:0,rating:me.rating,photo_url:me.photo_url};
 
   const boardRows = (list, wKey, lKey) => list.slice(0,10).map((p,i)=>`
-    <tr><td>${i+1}</td><td>${p.name}${p.id===me.id?' <span class="tag">you</span>':''}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No matches recorded yet.</td></tr>';
+    <tr><td>${i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${ratingLevel(p.rating)}</span></td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No matches recorded yet.</td></tr>';
+
+  const singlesHistory = await renderMatchHistory('singles');
+  const doublesHistory = await renderMatchHistory('doubles');
 
   app.innerHTML = `
   <div class="card"><h2>Your status</h2>
-    <div class="row">
+    <div class="row" style="align-items:center">
+      ${avatarHtml(mine,56)}
+      <div>
+        <input type="file" id="photo_file" accept="image/*" style="max-width:220px">
+        <button class="btn ghost" id="photo_submit" style="margin-top:6px">Upload photo</button>
+        <div class="error" id="photo_err"></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
       <div class="card" style="margin:0"><div class="muted">Points (rating)</div><div style="font-size:26px;font-weight:700">${mine.rating}</div></div>
+      <div class="card" style="margin:0"><div class="muted">Level</div><div style="font-size:20px;font-weight:700">${ratingLevel(mine.rating)}</div></div>
       <div class="card" style="margin:0"><div class="muted">Record</div><div style="font-size:26px;font-weight:700">${mine.wins}W – ${mine.losses}L</div></div>
       <div class="card" style="margin:0"><div class="muted">Win %</div><div style="font-size:26px;font-weight:700">${winPct(mine.wins,mine.losses)}</div></div>
       <div class="card" style="margin:0"><div class="muted">Overall rank</div><div style="font-size:26px;font-weight:700">#${myRank||'-'} <span class="muted" style="font-size:14px">of ${byRating.length}</span></div></div>
@@ -594,20 +639,53 @@ async function renderDashboard(){
     <p class="muted" style="margin-top:10px">Last login: ${fmtDateTime(me.last_login_at)}</p>
   </div>
   <div class="card"><h2>League highlights</h2>
-    <p>🏆 <b>Overall Champion (points):</b> ${champion? `${champion.name} — ${champion.rating} pts`:'-'}</p>
-    <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${mostPlayed.name} — ${mostPlayed.played} matches`:'-'}</p>
+    <p>🏆 <b>Overall Champion (points):</b> ${champion? `${esc(champion.name)} — ${champion.rating} pts`:'-'}</p>
+    <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${esc(mostPlayed.name)} — ${mostPlayed.played} matches`:'-'}</p>
+  </div>
+  <div class="card"><h2>🏅 Levels by Rating</h2>
+    <div class="table-scroll"><table><tr><th>Rating Band</th><th>Level</th><th>What it means</th></tr>
+    <tr><td>0 – 1199</td><td>Beginner</td><td>Learning strokes and serves; results swing widely.</td></tr>
+    <tr><td>1200 – 1699</td><td>Intermediate</td><td>Consistent rallies, developing spin and placement.</td></tr>
+    <tr><td>1700 – 2199</td><td>Advanced</td><td>Strong club player; tactics and third-ball attacks.</td></tr>
+    <tr><td>2200 – 2699</td><td>Elite</td><td>Tournament contender; national-level competition.</td></tr>
+    <tr><td>2700+</td><td>Pro</td><td>Top of the sport — world-class play.</td></tr>
+    </table></div>
   </div>
   <div class="card"><h2>Overall leaderboard (by points)</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th><th>Win %</th></tr>
-    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${p.name}${p.id===me.id?' <span class="tag">you</span>':''}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('')}
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>W–L</th><th>Win %</th></tr>
+    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${ratingLevel(p.rating)}</span></td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('')}
     </table></div>
   </div>
   <div class="card"><h2>Singles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
   </div>
   <div class="card"><h2>Doubles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
+  </div>
+  <div class="card"><h2>Singles match history</h2>
+    <div class="table-scroll"><table><tr><th>When</th><th>Player 1</th><th>Player 2</th><th>Winner</th></tr>${singlesHistory}</table></div>
+  </div>
+  <div class="card"><h2>Doubles match history</h2>
+    <div class="table-scroll"><table><tr><th>When</th><th>Team 1</th><th>Team 2</th><th>Winner</th></tr>${doublesHistory}</table></div>
   </div>`;
+
+  document.getElementById('photo_submit').onclick = async (e)=>{
+    const btn=e.currentTarget;
+    const fileInput=document.getElementById('photo_file');
+    const err=document.getElementById('photo_err');
+    const file=fileInput.files[0];
+    if(!file){ err.textContent='Please choose a photo.'; return; }
+    setLoading(btn,true,'Uploading...');
+    const path = `${me.id}/${Date.now()}-${file.name}`;
+    const {error:upErr} = await sb.storage.from('player-photos').upload(path, file, {upsert:true});
+    if(upErr){ setLoading(btn,false); err.textContent = upErr.message; return; }
+    const {data:urlData} = sb.storage.from('player-photos').getPublicUrl(path);
+    const {error:updErr} = await sb.from('sttl_players').update({photo_url:urlData.publicUrl}).eq('id',me.id);
+    setLoading(btn,false);
+    if(updErr){ err.textContent = updErr.message; return; }
+    me.photo_url = urlData.publicUrl;
+    renderDashboard();
+  };
 }
 
 async function renderPlay(){
@@ -632,7 +710,7 @@ async function renderPlay(){
   const matchRows = await Promise.all((accepted||[]).map(async c=>{
     const res = results.find(r=>r.challenge_id===c.id);
     const when = c.scheduled_at ? fmtDateTime(c.scheduled_at) : '<span class="muted">Not scheduled</span>';
-    const venue = c.venue ? c.venue : '<span class="muted">—</span>';
+    const venue = c.venue ? esc(c.venue) : '<span class="muted">—</span>';
     let action='';
     if(!res){
       action = `<button class="btn" onclick="openScoreEntry('${c.id}')">Enter winner</button>`;
@@ -687,22 +765,32 @@ async function renderPlay(){
   <div class="card"><h2>Incoming challenges</h2>
     ${(incoming&&incoming.length)? (await Promise.all(incoming.map(async c=>`
       <div class="row" style="align-items:center;border-bottom:1px solid var(--line);padding:8px 0">
-        <div>${await nameOf(c.challenger_id)} challenged you (${c.match_type})${c.scheduled_at?` — <span class="muted">${fmtDateTime(c.scheduled_at)}</span>`:''}${c.venue?` <span class="muted">at ${c.venue}</span>`:''}</div>
+        <div>${await nameOf(c.challenger_id)} challenged you (${c.match_type})${c.scheduled_at?` — <span class="muted">${fmtDateTime(c.scheduled_at)}</span>`:''}${c.venue?` <span class="muted">at ${esc(c.venue)}</span>`:''}</div>
         <div><button class="btn" onclick="respondChallenge(this,'${c.id}','accepted')">Accept</button>
         <button class="btn ghost" onclick="respondChallenge(this,'${c.id}','declined')">Decline</button></div>
       </div>`))).join('') : '<p class="muted">None right now.</p>'}
   </div>
   <div class="card"><h2>Outgoing challenges (pending)</h2>
-    ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})${c.scheduled_at?` — ${fmtDateTime(c.scheduled_at)}`:''}${c.venue?` at ${c.venue}`:''}</div>`))).join(''):'<p class="muted">None right now.</p>'}
+    ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})${c.scheduled_at?` — ${fmtDateTime(c.scheduled_at)}`:''}${c.venue?` at ${esc(c.venue)}`:''}</div>`))).join(''):'<p class="muted">None right now.</p>'}
   </div>
-  ${(!me.is_subscribed && !isTrialActive(me)) ? `<div class="card"><h2>Subscribe to keep playing</h2>${paymentUploadHtml()}</div>` : ''}`;
+  <div class="card"><h2>${me.is_subscribed ? 'Your subscription' : (!me.is_subscribed && !isTrialActive(me)) ? 'Subscribe to keep playing' : 'Pay early (optional)'}</h2>
+    <p class="muted">${me.is_subscribed ? "You're subscribed — thank you! You can upload next month's payment here ahead of time if you like." : isTrialActive(me) ? `Your free trial runs until ${fmtDate(me.trial_ends_on)}. You can pay now so your subscription is already active once the trial ends.` : 'Your free trial has ended — pay to keep playing.'}</p>
+    ${paymentUploadHtml()}
+  </div>`;
   document.getElementById('mtype').onchange = e=>{
     document.getElementById('partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
   };
   wireVenuePicker('venue');
   document.getElementById('sendChallenge').onclick = async (e)=>{
     const btn=e.currentTarget;
+    const opponent_id0 = document.getElementById('opp').value;
+    const errEl=document.getElementById('ch_err');
     setLoading(btn,true,'Sending...');
+    if(await playedRecently(opponent_id0)){
+      setLoading(btn,false);
+      errEl.textContent='You can only challenge the same player again 24 hours after your last match with them.';
+      return;
+    }
     const match_type = document.getElementById('mtype').value;
     const opponent_id = document.getElementById('opp').value;
     const whenVal = document.getElementById('whenPlay').value;
@@ -731,6 +819,11 @@ async function renderPlay(){
     const whenVal = document.getElementById('qr_when').value;
     const venue = getVenueValue('qr_venue');
     setLoading(btn,true,'Submitting...');
+    if(await playedRecently(opponent_id)){
+      setLoading(btn,false);
+      err.textContent='You can only record another match against the same player 24 hours after your last one with them.';
+      return;
+    }
     const payload = {challenger_id:me.id, opponent_id, match_type, status:'accepted'};
     if(whenVal) payload.scheduled_at = new Date(whenVal).toISOString();
     if(venue) payload.venue = venue;
@@ -768,7 +861,19 @@ async function renderPlay(){
   }
 }
 
-async function nameOf(id){ const p = players.find(x=>x.id===id) || (id===me.id?me:null); return p? p.name : id?.slice(0,6); }
+async function nameOf(id){ const p = players.find(x=>x.id===id) || (id===me.id?me:null); return p? esc(p.name) : id?.slice(0,6); }
+
+async function playedRecently(opponentId){
+  // Friendly client-side check for the UI; the database itself also
+  // enforces this (see the "insert own challenge" policy), so this can't
+  // be bypassed by calling the API directly.
+  const since = new Date(Date.now() - 24*3600*1000).toISOString();
+  const {data} = await sb.from('sttl_challenges').select('id')
+    .gt('created_at', since)
+    .or(`and(challenger_id.eq.${me.id},opponent_id.eq.${opponentId}),and(challenger_id.eq.${opponentId},opponent_id.eq.${me.id})`)
+    .limit(1);
+  return (data||[]).length > 0;
+}
 
 function venuePickerHtml(prefix){
   return `<label>Where are you playing</label>
@@ -786,7 +891,7 @@ function getVenueValue(prefix){
 }
 function paymentUploadHtml(){
   return `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
-    <p class="muted">Pay <b>S$2</b> via PayNow using <b>${me.email}</b> as the payment reference, then upload your screenshot here for admin approval.</p>
+    <p class="muted">Pay <b>S$2</b> via PayNow using <b>${esc(me.email)}</b> as the payment reference, then upload your screenshot here for admin approval.</p>
     <input type="file" id="pay_file" accept="image/*">
     <button class="btn" id="pay_submit" style="margin-top:8px">Upload payment screenshot</button>
     <div class="error" id="pay_err"></div>
@@ -821,22 +926,13 @@ function expectedScore(ratingA, ratingB){
 }
 window.ackScore = async (btn,resultId)=>{
   setLoading(btn,true,'Recording...');
-  const {data:res} = await sb.from('sttl_match_results').select('*').eq('id',resultId).single();
-  await sb.from('sttl_match_results').update({acknowledged:true, acknowledged_by:me.id}).eq('id',resultId);
-  const {data:c} = await sb.from('sttl_challenges').select('*').eq('id',res.challenge_id).single();
-  const winnerId = res.winner_side==='challenger'? c.challenger_id : c.opponent_id;
-  const loserId = res.winner_side==='challenger'? c.opponent_id : c.challenger_id;
-  const {data:w} = await sb.from('sttl_players').select('rating').eq('id',winnerId).single();
-  const {data:l} = await sb.from('sttl_players').select('rating').eq('id',loserId).single();
-  const winnerRating = w?.rating||1000, loserRating = l?.rating||1000;
-  // Upset-sensitive scoring: an underdog beating a much higher-rated player
-  // gains close to the full K; a heavy favourite beating a weak underdog
-  // gains very little. Points moved are always equal and opposite.
-  const K = 32;
-  const expectedWinner = expectedScore(winnerRating, loserRating);
-  const delta = Math.max(1, Math.round(K * (1 - expectedWinner)));
-  await sb.from('sttl_players').update({rating:winnerRating+delta, last_played_on:new Date().toISOString().slice(0,10)}).eq('id',winnerId);
-  await sb.from('sttl_players').update({rating:Math.max(100,loserRating-delta), last_played_on:new Date().toISOString().slice(0,10)}).eq('id',loserId);
+  // The actual rating math (upset-sensitive, same formula as expectedScore
+  // above) now runs server-side in record_match_acknowledgement(), which
+  // also verifies you're genuinely part of this match before touching
+  // anyone's rating — direct table updates for this are no longer allowed.
+  const {error} = await sb.rpc('record_match_acknowledgement', {p_result_id: resultId});
+  setLoading(btn,false);
+  if(error){ alert('Could not record this result: '+error.message); return; }
   renderPlay();
 };
 
@@ -869,16 +965,16 @@ function renderInfo(){
   </div>`;
   // Shop / discount tiers — commented out for now. To bring it back, remove
   // this comment block and the one closing it below.
-  ///*
-  //app.innerHTML += `<div class="card"><h2>Sin Ten Sports Shop</h2>
-  //  <p>Your rating: <b>${me.rating}</b> → Tier: <span class="tag">${t.name}</span></p>
-  //  <p>You get <b>${t.pct}% off</b> at <a class="link" onclick="window.open('https://www.sintensports.com.sg/','_blank')">Sin Ten Sports Trading</a>. Show your profile at checkout.</p>
-  //  <div class="table-scroll"><table><tr><th>Tier</th><th>Rating</th><th>Discount</th></tr>
-  //  <tr><td>Bronze</td><td>&lt;1150</td><td>5%</td></tr>
-  //  <tr><td>Silver</td><td>1150–1299</td><td>10%</td></tr>
-  //  <tr><td>Gold</td><td>1300+</td><td>15%</td></tr></table></div>
-  //</div>`;
-  //*/
+  /*
+  app.innerHTML += `<div class="card"><h2>Sin Ten Sports Shop</h2>
+    <p>Your rating: <b>${me.rating}</b> → Tier: <span class="tag">${t.name}</span></p>
+    <p>You get <b>${t.pct}% off</b> at <a class="link" onclick="window.open('https://www.sintensports.com.sg/','_blank')">Sin Ten Sports Trading</a>. Show your profile at checkout.</p>
+    <div class="table-scroll"><table><tr><th>Tier</th><th>Rating</th><th>Discount</th></tr>
+    <tr><td>Bronze</td><td>&lt;1150</td><td>5%</td></tr>
+    <tr><td>Silver</td><td>1150–1299</td><td>10%</td></tr>
+    <tr><td>Gold</td><td>1300+</td><td>15%</td></tr></table></div>
+  </div>`;
+  */
 }
 
 // ---------- ADMIN ----------
@@ -903,6 +999,25 @@ async function renderAdmin(){
   const {data:ccs} = await sb.from('sttl_communities').select('*').order('name');
   const notes = await sb.from('sttl_inactivity_notes').select('*, sttl_players!inner(name)').order('created_at',{ascending:false});
   const {data:proofs} = await sb.from('sttl_payment_proofs').select('*, sttl_players!inner(name,email)').eq('status','pending').order('submitted_at',{ascending:true});
+  const {data:allChallenges} = await sb.from('sttl_challenges').select('*').order('created_at',{ascending:false}).limit(40);
+  const chIds = (allChallenges||[]).map(c=>c.id);
+  let chResults = [];
+  if(chIds.length){ const {data} = await sb.from('sttl_match_results').select('*').in('challenge_id',chIds); chResults = data||[]; }
+  const nameById = id => { const p=(all||[]).find(x=>x.id===id); return p? esc(p.name) : (id? id.slice(0,6) : '-'); };
+  const matchRowsAdmin = (allChallenges||[]).map(c=>{
+    const res = chResults.find(r=>r.challenge_id===c.id);
+    const winnerName = res ? (res.winner_side==='challenger'? nameById(c.challenger_id) : nameById(c.opponent_id)) : '-';
+    const resultText = !res ? '<span class="badge muted">No result yet</span>' : (res.acknowledged ? `<span class="badge ok">Recorded — ${winnerName}</span>` : '<span class="badge warn">Pending acceptance</span>');
+    return `<tr>
+      <td>${fmtDateTime(c.created_at)}</td>
+      <td>${nameById(c.challenger_id)}${c.challenger_partner_id? ' &amp; '+nameById(c.challenger_partner_id):''}</td>
+      <td>${nameById(c.opponent_id)}${c.opponent_partner_id? ' &amp; '+nameById(c.opponent_partner_id):''}</td>
+      <td>${c.match_type}</td>
+      <td>${c.status}</td>
+      <td>${resultText}</td>
+      <td><button class="btn ghost" style="color:var(--warn)" onclick="deleteMatch(this,'${c.id}')">Delete</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="muted">No matches yet.</td></tr>';
   app.innerHTML = `
   <div class="card"><h2>Admin settings</h2>
     <label><input type="checkbox" id="pinToggle" ${me.admin_pin_enabled?'checked':''}> Require PIN to open Admin tab</label>
@@ -918,7 +1033,7 @@ async function renderAdmin(){
         <div class="row" style="align-items:center">
           <a href="${url}" target="_blank"><img src="${url}" alt="payment screenshot" style="max-width:90px;max-height:90px;border-radius:6px;object-fit:cover"></a>
           <div>
-            <div><b>${pf.sttl_players.name}</b> <span class="muted">(${pf.sttl_players.email||''})</span></div>
+            <div><b>${esc(pf.sttl_players.name)}</b> <span class="muted">(${esc(pf.sttl_players.email)||''})</span></div>
             <div class="muted">For ${pf.month} · submitted ${fmtDateTime(pf.submitted_at)}</div>
           </div>
         </div>
@@ -948,13 +1063,17 @@ async function renderAdmin(){
     <input id="playerSearch" placeholder="Start typing to filter...">
     <div id="playersList" style="margin-top:10px"></div>
   </div>
+  <div class="card"><h2>Manage matches</h2>
+    <p class="muted">Deleting a match removes its challenge and any result record. It does <b>not</b> automatically reverse rating points that were already applied when the result was accepted.</p>
+    <div class="table-scroll"><table><tr><th>Created</th><th>Side A</th><th>Side B</th><th>Type</th><th>Status</th><th>Result</th><th>Actions</th></tr>${matchRowsAdmin}</table></div>
+  </div>
   <div class="card"><h2>Community centers</h2>
     <div class="row">${(ccs||[]).map(c=>`<span class="tag">${c.name} <a onclick="removeCC('${c.id}','${c.name.replace(/'/g,"\\'")}')" style="cursor:pointer">✕</a></span>`).join(' ')}</div>
     <div class="row" style="margin-top:10px"><input id="newCC" placeholder="New community center name"><button class="btn" id="addCCBtn">Add</button></div>
     <div class="error" id="cc_err"></div>
   </div>
   <div class="card"><h2>Inactivity notes</h2>
-    ${(notes.data||[]).map(n=>`<p><b>${n.sttl_players?.name||''}</b>: ${n.reason} <span class="muted">(${fmtDate(n.created_at)})</span></p>`).join('')||'<p class="muted">None.</p>'}
+    ${(notes.data||[]).map(n=>`<p><b>${esc(n.sttl_players?.name||'')}</b>: ${esc(n.reason)} <span class="muted">(${fmtDate(n.created_at)})</span></p>`).join('')||'<p class="muted">None.</p>'}
   </div>`;
   document.getElementById('saveCfg').onclick = async (e)=>{
     setLoading(e.currentTarget,true,'Saving...');
@@ -971,8 +1090,8 @@ async function renderAdmin(){
   function playerRowHtml(p){
     return `<div class="player-item">
       <div class="player-item-head">
-        <div>👤 <b>${p.name}</b>${p.is_admin?' <span class="tag">admin</span>':''}</div>
-        <div class="muted" style="font-size:12px">✉️ ${p.email||'—'}</div>
+        <div>👤 <b>${esc(p.name)}</b>${p.is_admin?' <span class="tag">admin</span>':''}</div>
+        <div class="muted" style="font-size:12px">✉️ ${esc(p.email)||'—'}</div>
       </div>
       <div class="player-item-meta">
         <span>📍 ${p.community_center}</span>
@@ -1043,6 +1162,14 @@ async function renderAdmin(){
   };
 }
 window.approveUser = async (btn,id)=>{ setLoading(btn,true,'Approving...'); await sb.from('sttl_players').update({is_approved:true}).eq('id',id); renderAdmin(); };
+window.deleteMatch = async (btn,challengeId)=>{
+  if(!confirm('Delete this match? This removes the challenge and any recorded result.\nIt will NOT reverse rating points already applied.')) return;
+  setLoading(btn,true,'Deleting...');
+  const {error} = await sb.from('sttl_challenges').delete().eq('id',challengeId);
+  setLoading(btn,false);
+  if(error){ alert('Could not delete match: '+error.message); return; }
+  renderAdmin();
+};
 window.approvePayment = async (btn,proofId,playerId)=>{
   setLoading(btn,true,'Approving...');
   await sb.from('sttl_payment_proofs').update({status:'approved', reviewed_at:new Date().toISOString(), reviewed_by:me.id}).eq('id',proofId);
@@ -1068,8 +1195,8 @@ window.removeCC = async (id,name)=>{
 };
 window.editUser = async (id)=>{
   const {data:p} = await sb.from('sttl_players').select('*').eq('id',id).single();
-  modal(`<h2>Edit ${p.name}</h2>
-    <label>Name</label><input id="e_name" value="${p.name}">
+  modal(`<h2>Edit ${esc(p.name)}</h2>
+    <label>Name</label><input id="e_name" value="${esc(p.name)}">
     <label>Age</label><input id="e_age" type="number" value="${p.age}">
     <label>Community Center</label><input id="e_cc" value="${p.community_center}">
     <label><input type="checkbox" id="e_sub" ${p.is_subscribed?'checked':''}> Subscribed</label>
