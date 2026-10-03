@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Round-Robin Table Tennis Tournament Manager</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SheetJS CDN for exporting to Excel (.xlsx) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Google Font Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 sm:p-8">
+
+  <div class="max-w-6xl mx-auto space-y-6">
+    
+    <!-- Header -->
+    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center border-b border-slate-800 pb-4 gap-4">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-emerald-400 flex items-center gap-2">
+          🏓 Table Tennis Round-Robin Manager
+        </h1>
+        <p class="text-xs sm:text-sm text-slate-400 mt-1">
+          Balanced Sequential Rounds • Collapsible Fixtures • Cumulative JSON Snapshots & Restoration
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-2 w-full lg:w-auto">
+        <!-- Import JSON File Hidden Input -->
+        <input type="file" id="importJsonInput" accept=".json" class="hidden" onchange="importJSONBackup(event)">
+        
+        <button onclick="document.getElementById('importJsonInput').click()" class="flex-1 lg:flex-initial bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-3.5 py-2.5 rounded-xl border border-indigo-500/50 shadow-md transition active:scale-95 flex items-center justify-center gap-1.5">
+          📥 Import JSON Backup
+        </button>
+        <button onclick="exportToExcel()" class="flex-1 lg:flex-initial bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-3.5 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-1.5">
+          📊 Export Excel (.xlsx)
+        </button>
+        <button onclick="exportToCSV()" class="flex-1 lg:flex-initial bg-slate-700 hover:bg-slate-600 text-white font-semibold text-xs px-3.5 py-2.5 rounded-xl border border-slate-600 transition active:scale-95 flex items-center justify-center gap-1.5">
+          📄 Export CSV
+        </button>
+      </div>
+    </div>
+
+    <!-- Notification / Persistence Badge -->
+    <div id="statusToast" class="bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 px-4 py-2.5 rounded-xl text-xs flex items-center justify-between shadow-lg">
+      <span class="flex items-center gap-2">
+        <span class="relative flex h-2.5 w-2.5">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+        </span>
+        <span id="toastMsg">LocalStorage auto-save active. State updates dynamically.</span>
+      </span>
+      <span class="text-[10px] text-emerald-400/70 font-mono uppercase tracking-wider">PERSISTED</span>
+    </div>
+
+    <!-- Bulk Name Input Area -->
+    <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 shadow-xl space-y-3">
+      <div class="flex justify-between items-center">
+        <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+          1. Bulk Input Player Names
+        </h2>
+        <span class="text-xs text-slate-400">Comma or line separated</span>
+      </div>
+      
+      <textarea id="bulkNames" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono" placeholder="e.g. Player 1, Player 2, Player 3, Player 4, Player 5"></textarea>
+      
+      <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+        <button onclick="generateTable()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-lg shadow-emerald-500/10 active:scale-95 flex items-center justify-center gap-1">
+          ⚡ Generate Balanced Round-Robin Schedule
+        </button>
+        <button onclick="clearAllData()" class="text-xs text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1 justify-center">
+          🗑️ Reset Tournament & Clear Storage
+        </button>
+      </div>
+    </div>
+
+    <!-- 2. Match Results Table (PRIMARY VIEW AT TOP) -->
+    <div class="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
+      <div class="p-4 border-b border-slate-700 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-800/80 gap-3">
+        <div>
+          <h2 class="text-sm font-semibold text-slate-200">2. Round-Robin Match Fixtures</h2>
+          <p class="text-xs text-slate-400">Matches grouped by Round. Click any Round header to toggle collapse/expand.</p>
+        </div>
+        <div class="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+          <button onclick="toggleAllRounds(true)" class="text-[11px] bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-600 font-medium transition">
+            📂 Expand All
+          </button>
+          <button onclick="toggleAllRounds(false)" class="text-[11px] bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-600 font-medium transition">
+            📁 Collapse All
+          </button>
+          <span id="matchCounter" class="text-xs bg-slate-900 text-emerald-400 border border-slate-700 px-3 py-1.5 rounded-lg font-semibold">0 Matches</span>
+        </div>
+      </div>
+
+      <!-- Container for Collapsible Round Cards -->
+      <div id="roundsContainer" class="p-4 space-y-4">
+        <div class="text-center py-8 text-slate-500 text-xs">
+          No matches loaded. Enter player names above to generate balanced round-by-round fixtures.
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Player Summary Standings Table (MOVED BELOW) -->
+    <div class="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
+      <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/80">
+        <div>
+          <h2 class="text-sm font-semibold text-emerald-400 flex items-center gap-2">
+            🏆 Player Standings & Summary
+          </h2>
+          <p class="text-xs text-slate-400">Updates dynamically as match results are submitted and saved.</p>
+        </div>
+        <span id="playerCounter" class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-full font-semibold">0 Players</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-900/90 text-xs text-slate-400 uppercase border-b border-slate-700">
+            <tr>
+              <th class="py-3 px-4 w-12 text-center">Rank</th>
+              <th class="py-3 px-4">Player Name</th>
+              <th class="py-3 px-4 text-center">Scheduled</th>
+              <th class="py-3 px-4 text-center">Played</th>
+              <th class="py-3 px-4 text-center text-emerald-400">Wins</th>
+              <th class="py-3 px-4 text-center text-rose-400">Losses</th>
+              <th class="py-3 px-4 text-center">Win Rate (%)</th>
+            </tr>
+          </thead>
+          <tbody id="summaryBody" class="divide-y divide-slate-700/50">
+            <tr>
+              <td colspan="7" class="text-center py-6 text-slate-500 text-xs">
+                No player statistics available yet. Enter player names above to start.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const STORAGE_KEY = "TT_TOURNAMENT_APP_DATA_V3";
+    let playersList = [];
+    let matches = [];
+    // State object tracking collapse status per round (e.g. { 1: false, 2: true })
+    let roundCollapseState = {};
+
+    // Load state from localStorage on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      loadFromLocalStorage();
+    });
+
+    // Save entire tournament state to Browser LocalStorage
+    function saveToLocalStorage() {
+      const state = {
+        playersList: playersList,
+        matches: matches,
+        roundCollapseState: roundCollapseState,
+        bulkInputText: document.getElementById('bulkNames').value,
+        updatedAt: new Date().toISOString()
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      showToast("Tournament state saved to Browser LocalStorage!");
+    }
+
+    // Load state from Browser LocalStorage
+    function loadFromLocalStorage() {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        try {
+          const state = JSON.parse(stored);
+          playersList = state.playersList || [];
+          matches = state.matches || [];
+          roundCollapseState = state.roundCollapseState || {};
+          if (state.bulkInputText) {
+            document.getElementById('bulkNames').value = state.bulkInputText;
+          }
+          renderRounds();
+          renderSummaryTable();
+          showToast("Loaded saved tournament data from local browser storage.");
+        } catch (e) {
+          console.error("Failed to parse stored tournament data", e);
+        }
+      }
+    }
+
+    // Download FULL cumulative snapshot JSON file containing ALL tournament state
+    function downloadCumulativeJSONBackup(lastActionMatch) {
+      const fullSnapshot = {
+        app: "Table Tennis Round-Robin Tournament Manager",
+        version: "3.0",
+        lastUpdated: new Date().toISOString(),
+        lastAction: lastActionMatch ? `Submitted Match #${lastActionMatch.id} (Round ${lastActionMatch.round})` : "Manual Export",
+        players: playersList,
+        standings: calculatePlayerStats(),
+        roundCollapseState: roundCollapseState,
+        matches: matches
+      };
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(fullSnapshot, null, 2));
+      const downloadAnchor = document.createElement('a');
+      const filename = `TT_Tournament_FullBackup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", filename);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      showToast(`Saved cumulative backup JSON file: ${filename}`);
+    }
+
+    // Import and restore snapshot JSON file
+    function importJSONBackup(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (!data.players || !data.matches) {
+            alert("Invalid tournament backup file format!");
+            return;
+          }
+
+          if (confirm(`Restore tournament with ${data.players.length} players and ${data.matches.length} matches?\n\nThis will overwrite current in-memory tournament data.`)) {
+            playersList = data.players || [];
+            matches = data.matches || [];
+            roundCollapseState = data.roundCollapseState || {};
+            document.getElementById('bulkNames').value = playersList.join(', ');
+
+            saveToLocalStorage();
+            renderRounds();
+            renderSummaryTable();
+            showToast("Successfully imported and restored tournament backup!");
+          }
+        } catch (err) {
+          alert("Error reading JSON backup file: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+      // Reset input value so same file can be re-uploaded if needed
+      event.target.value = '';
+    }
+
+    /**
+     * Generates Round-Robin matches strictly grouped by Rounds using Berger's Circle algorithm.
+     */
+    function generateBalancedRoundRobin(players) {
+      let pool = [...players];
+      const isOdd = pool.length % 2 !== 0;
+      if (isOdd) {
+        pool.push("BYE");
+      }
+
+      const numPlayers = pool.length;
+      const totalRounds = numPlayers - 1;
+      const matchesPerRound = numPlayers / 2;
+
+      let allMatches = [];
+      let matchIdCounter = 1;
+
+      let roundPlayers = [...pool];
+
+      for (let round = 1; round <= totalRounds; round++) {
+        for (let i = 0; i < matchesPerRound; i++) {
+          const p1 = roundPlayers[i];
+          const p2 = roundPlayers[numPlayers - 1 - i];
+
+          if (p1 !== "BYE" && p2 !== "BYE") {
+            allMatches.push({
+              id: matchIdCounter++,
+              round: round,
+              player1: p1,
+              player2: p2,
+              winner: "",
+              submitted: false,
+              timestamp: null
+            });
+          }
+        }
+
+        // Rotate circle
+        const fixed = roundPlayers[0];
+        const last = roundPlayers[roundPlayers.length - 1];
+        const rest = roundPlayers.slice(1, roundPlayers.length - 1);
+        roundPlayers = [fixed, last, ...rest];
+      }
+
+      return allMatches;
+    }
+
+    // Generate tournament fixtures from bulk names
+    function generateTable() {
+      const text = document.getElementById('bulkNames').value;
+      let rawNames = text.split(/[\n,]+/).map(n => n.trim()).filter(n => n.length > 0);
+
+      playersList = [...new Set(rawNames)];
+
+      if (playersList.length < 2) {
+        alert("Please enter at least 2 unique player names to generate matches.");
+        return;
+      }
+
+      if (matches.length > 0 && !confirm("Generating new fixtures will reset existing match entries. Continue?")) {
+        return;
+      }
+
+      matches = generateBalancedRoundRobin(playersList);
+      roundCollapseState = {}; // default all expanded
+      saveToLocalStorage();
+      renderRounds();
+      renderSummaryTable();
+    }
+
+    // Calculate dynamic player stats
+    function calculatePlayerStats() {
+      const stats = {};
+
+      playersList.forEach(player => {
+        stats[player] = {
+          name: player,
+          totalScheduled: 0,
+          played: 0,
+          wins: 0,
+          losses: 0
+        };
+      });
+
+      matches.forEach(m => {
+        if (stats[m.player1]) stats[m.player1].totalScheduled++;
+        if (stats[m.player2]) stats[m.player2].totalScheduled++;
+
+        if (m.submitted && m.winner) {
+          if (stats[m.player1]) stats[m.player1].played++;
+          if (stats[m.player2]) stats[m.player2].played++;
+
+          const loser = m.winner === m.player1 ? m.player2 : m.player1;
+          
+          if (stats[m.winner]) stats[m.winner].wins++;
+          if (stats[loser]) stats[loser].losses++;
+        }
+      });
+
+      return Object.values(stats).sort((a, b) => {
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        const rateA = a.played > 0 ? (a.wins / a.played) : 0;
+        const rateB = b.played > 0 ? (b.wins / b.played) : 0;
+        return rateB - rateA;
+      });
+    }
+
+    // Toggle collapse state for a specific round
+    function toggleRoundCollapse(roundNum) {
+      roundCollapseState[roundNum] = !roundCollapseState[roundNum];
+      saveToLocalStorage();
+      renderRounds();
+    }
+
+    // Master expand/collapse toggle for all rounds
+    function toggleAllRounds(expand) {
+      const rounds = [...new Set(matches.map(m => m.round))];
+      rounds.forEach(r => {
+        roundCollapseState[r] = !expand;
+      });
+      saveToLocalStorage();
+      renderRounds();
+    }
+
+    // Render match fixtures structured inside collapsible round cards
+    function renderRounds() {
+      const container = document.getElementById('roundsContainer');
+      const counter = document.getElementById('matchCounter');
+      counter.innerText = `${matches.length} Matches Total`;
+      container.innerHTML = '';
+
+      if (matches.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-8 text-slate-500 text-xs">
+            No matches loaded. Enter player names above to generate balanced round-by-round fixtures.
+          </div>`;
+        return;
+      }
+
+      // Group matches by round
+      const roundsMap = {};
+      matches.forEach(m => {
+        if (!roundsMap[m.round]) roundsMap[m.round] = [];
+        roundsMap[m.round].push(m);
+      });
+
+      Object.keys(roundsMap).forEach(roundStr => {
+        const roundNum = parseInt(roundStr);
+        const roundMatches = roundsMap[roundNum];
+        const completedCount = roundMatches.filter(m => m.submitted).length;
+        const totalRoundMatches = roundMatches.length;
+        const isCompleted = completedCount === totalRoundMatches;
+        const isCollapsed = !!roundCollapseState[roundNum];
+
+        const roundCard = document.createElement('div');
+        roundCard.className = "bg-slate-900 border border-slate-700/80 rounded-xl overflow-hidden transition shadow-sm";
+
+        // Round Card Header
+        const roundHeader = document.createElement('div');
+        roundHeader.className = "p-3 px-4 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between cursor-pointer select-none hover:bg-slate-700/50 transition";
+        roundHeader.onclick = () => toggleRoundCollapse(roundNum);
+
+        roundHeader.innerHTML = `
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-bold text-slate-300 bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-md">
+              ${isCollapsed ? '► Expand' : '▼ Compress'}
+            </span>
+            <span class="font-bold text-sm text-emerald-400">🎯 Round ${roundNum}</span>
+            <span class="text-xs text-slate-400 font-mono">
+              (${completedCount}/${totalRoundMatches} Completed)
+            </span>
+          </div>
+          <div>
+            ${isCompleted ? `
+              <span class="text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-semibold">
+                ✓ Round Finished
+              </span>
+            ` : `
+              <span class="text-[11px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2.5 py-0.5 rounded-full font-semibold">
+                ⏳ In Progress
+              </span>
+            `}
+          </div>
+        `;
+
+        roundCard.appendChild(roundHeader);
+
+        // If not collapsed, display match list table inside round card
+        if (!isCollapsed) {
+          const tableContainer = document.createElement('div');
+          tableContainer.className = "overflow-x-auto";
+
+          let tableHtml = `
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-950/60 text-[11px] text-slate-400 uppercase border-b border-slate-800">
+                <tr>
+                  <th class="py-2.5 px-4 w-16">Match #</th>
+                  <th class="py-2.5 px-4">Player 1</th>
+                  <th class="py-2.5 px-4">Player 2</th>
+                  <th class="py-2.5 px-4 w-52">Winner Selection</th>
+                  <th class="py-2.5 px-4 w-28">Status</th>
+                  <th class="py-2.5 px-4 w-28 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/70">
+          `;
+
+          roundMatches.forEach(m => {
+            const isLocked = m.submitted;
+            tableHtml += `
+              <tr class="${isLocked ? 'bg-slate-950/30 text-slate-400' : 'hover:bg-slate-800/40 transition'}">
+                <td class="py-3 px-4 font-mono text-emerald-400 text-xs">#${m.id}</td>
+                <td class="py-3 px-4 font-medium">${m.player1}</td>
+                <td class="py-3 px-4 font-medium">${m.player2}</td>
+                <td class="py-3 px-4">
+                  ${isLocked ? `
+                    <span class="font-bold ${m.winner === m.player1 ? 'text-emerald-400' : 'text-slate-300'} flex items-center gap-1">
+                      🏆 ${m.winner}
+                    </span>
+                  ` : `
+                    <select id="winner-${m.id}" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-white focus:ring-2 focus:ring-emerald-500 outline-none">
+                      <option value="" disabled selected>-- Select Winner --</option>
+                      <option value="${m.player1}">${m.player1}</option>
+                      <option value="${m.player2}">${m.player2}</option>
+                    </select>
+                  `}
+                </td>
+                <td class="py-3 px-4">
+                  ${isLocked ? `
+                    <span class="inline-flex items-center gap-1 text-[11px] bg-slate-800 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold">
+                      🔒 Locked
+                    </span>
+                  ` : `
+                    <span class="inline-flex items-center text-[11px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold">
+                      ⏳ Pending
+                    </span>
+                  `}
+                </td>
+                <td class="py-3 px-4 text-right">
+                  ${isLocked ? `
+                    <span class="text-xs text-slate-500 italic">Saved</span>
+                  ` : `
+                    <button onclick="submitMatch(${m.id})" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-md transition shadow active:scale-95">
+                      Submit
+                    </button>
+                  `}
+                </td>
+              </tr>
+            `;
+          });
+
+          tableHtml += `</tbody></table>`;
+          tableContainer.innerHTML = tableHtml;
+          roundCard.appendChild(tableContainer);
+        }
+
+        container.appendChild(roundCard);
+      });
+    }
+
+    // Submit match result, lock entry, save cumulative state, and download full snapshot file
+    function submitMatch(matchId) {
+      const match = matches.find(m => m.id === matchId);
+      const selectElement = document.getElementById(`winner-${matchId}`);
+      const chosenWinner = selectElement ? selectElement.value : "";
+
+      if (!chosenWinner) {
+        alert("Please select a winner before submitting!");
+        return;
+      }
+
+      if (confirm(`Confirm ${chosenWinner} as winner for Match #${matchId} (Round ${match.round})?\n\nThis will lock the match and automatically download a full cumulative JSON backup file containing all tournament data up to this point.`)) {
+        match.winner = chosenWinner;
+        match.submitted = true;
+        match.timestamp = new Date().toISOString();
+
+        // Save state to LocalStorage
+        saveToLocalStorage();
+
+        // Re-render UI views
+        renderRounds();
+        renderSummaryTable();
+
+        // Download full cumulative tournament snapshot JSON
+        downloadCumulativeJSONBackup(match);
+      }
+    }
+
+    // Render player standings table
+    function renderSummaryTable() {
+      const summaryBody = document.getElementById('summaryBody');
+      const counter = document.getElementById('playerCounter');
+      counter.innerText = `${playersList.length} Players`;
+
+      if (playersList.length === 0) {
+        summaryBody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-500 text-xs">No player statistics available yet. Enter player names above.</td></tr>`;
+        return;
+      }
+
+      const playerStats = calculatePlayerStats();
+      summaryBody.innerHTML = '';
+
+      playerStats.forEach((p, index) => {
+        const winRate = p.played > 0 ? ((p.wins / p.played) * 100).toFixed(1) : "0.0";
+        const row = document.createElement('tr');
+        row.className = "hover:bg-slate-700/30 transition";
+
+        row.innerHTML = `
+          <td class="py-3 px-4 text-center font-bold ${index === 0 ? 'text-amber-400' : index === 1 ? 'text-slate-300' : index === 2 ? 'text-amber-600' : 'text-slate-500'}">#${index + 1}</td>
+          <td class="py-3 px-4 font-semibold text-slate-100">${p.name}</td>
+          <td class="py-3 px-4 text-center text-slate-400 font-mono">${p.totalScheduled}</td>
+          <td class="py-3 px-4 text-center font-mono">${p.played}</td>
+          <td class="py-3 px-4 text-center font-bold text-emerald-400 font-mono">${p.wins}</td>
+          <td class="py-3 px-4 text-center font-bold text-rose-400 font-mono">${p.losses}</td>
+          <td class="py-3 px-4 text-center font-mono">
+            <span class="px-2 py-0.5 rounded text-xs ${p.played > 0 && winRate >= 50 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-slate-700 text-slate-300'}">
+              ${winRate}%
+            </span>
+          </td>
+        `;
+        summaryBody.appendChild(row);
+      });
+    }
+
+    // Reset tournament memory and LocalStorage
+    function clearAllData() {
+      if (confirm("Are you sure you want to delete all tournament data and clear local browser memory?")) {
+        localStorage.removeItem(STORAGE_KEY);
+        playersList = [];
+        matches = [];
+        roundCollapseState = {};
+        document.getElementById('bulkNames').value = '';
+        renderRounds();
+        renderSummaryTable();
+        showToast("All local tournament data cleared!");
+      }
+    }
+
+    // Export tournament data to Excel (.xlsx)
+    function exportToExcel() {
+      if (matches.length === 0) {
+        alert("No match data available to export!");
+        return;
+      }
+
+      const playerStats = calculatePlayerStats().map((p, idx) => ({
+        "Rank": idx + 1,
+        "Player Name": p.name,
+        "Total Scheduled Matches": p.totalScheduled,
+        "Matches Played": p.played,
+        "Wins": p.wins,
+        "Losses": p.losses,
+        "Win Rate (%)": p.played > 0 ? ((p.wins / p.played) * 100).toFixed(1) + "%" : "0.0%"
+      }));
+
+      const exportMatches = matches.map(m => ({
+        "Round": m.round,
+        "Match Number": m.id,
+        "Player 1": m.player1,
+        "Player 2": m.player2,
+        "Declared Winner": m.winner || "Pending",
+        "Status": m.submitted ? "Submitted & Locked" : "Pending Selection",
+        "Timestamp": m.timestamp || "N/A"
+      }));
+
+      const workbook = XLSX.utils.book_new();
+
+      const summarySheet = XLSX.utils.json_to_sheet(playerStats);
+      XLSX.utils.book_append_sheet(workbook, summarySheet, "Player Standings");
+
+      const matchSheet = XLSX.utils.json_to_sheet(exportMatches);
+      XLSX.utils.book_append_sheet(workbook, matchSheet, "Round-by-Round Matches");
+
+      XLSX.writeFile(workbook, `TT_Tournament_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
+    }
+
+    // Export tournament data to CSV
+    function exportToCSV() {
+      if (matches.length === 0) {
+        alert("No match data available to export!");
+        return;
+      }
+
+      let csvContent = "data:text/csv;charset=utf-8,--- PLAYER STANDINGS ---\nRank,Player Name,Total Scheduled,Matches Played,Wins,Losses,Win Rate (%)\n";
+
+      const playerStats = calculatePlayerStats();
+      playerStats.forEach((p, idx) => {
+        const winRate = p.played > 0 ? ((p.wins / p.played) * 100).toFixed(1) : "0.0";
+        csvContent += `${idx + 1},"${p.name}",${p.totalScheduled},${p.played},${p.wins},${p.losses},${winRate}%\n`;
+      });
+
+      csvContent += "\n--- MATCH RESULTS ---\nRound,Match Number,Player 1,Player 2,Declared Winner,Status,Timestamp\n";
+      matches.forEach(m => {
+        const row = [
+          m.round,
+          m.id,
+          `"${m.player1}"`,
+          `"${m.player2}"`,
+          `"${m.winner || 'Pending'}"`,
+          `"${m.submitted ? 'Submitted & Locked' : 'Pending Selection'}"`,
+          `"${m.timestamp || 'N/A'}"`
+        ].join(",");
+        csvContent += row + "\n";
+      });
+
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `TT_Tournament_Export_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function showToast(message) {
+      const toastMsg = document.getElementById('toastMsg');
+      if (toastMsg) {
+        toastMsg.innerText = message;
+      }
+    }
+  </script>
+</body>
+</html>
