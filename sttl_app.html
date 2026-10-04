@@ -577,12 +577,23 @@ function ratingLevel(r){
   if(r>=1200) return 'Intermediate';
   return 'Beginner';
 }
+const DUMMY_AVATAR = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="120" viewBox="0 0 100 120">'
+  + '<rect width="100" height="120" fill="#d5e6dc"/>'
+  + '<circle cx="50" cy="42" r="20" fill="#9fb3a8"/>'
+  + '<ellipse cx="50" cy="104" rx="36" ry="28" fill="#9fb3a8"/>'
+  + '</svg>'
+);
 function avatarHtml(p, size){
   size = size||26;
-  return p.photo_url
-    ? `<img src="${p.photo_url}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:6px">`
-    : `<span style="display:inline-block;width:${size}px;height:${size}px;border-radius:50%;background:var(--line);text-align:center;line-height:${size}px;font-size:${Math.floor(size*0.5)}px;vertical-align:middle;margin-right:6px">👤</span>`;
+  const h = Math.round(size*1.2);
+  const url = p.photo_url || DUMMY_AVATAR;
+  return `<img src="${url}" alt="" onclick="event.stopPropagation();showPhotoModal('${esc(url)}')" style="width:${size}px;height:${h}px;border-radius:5px;object-fit:cover;vertical-align:middle;margin-right:6px;cursor:pointer;border:1px solid var(--line)">`;
 }
+window.showPhotoModal = (url)=>{
+  modal(`<div style="text-align:center"><img src="${url}" alt="" style="max-width:100%;max-height:70vh;border-radius:8px;border:1px solid var(--line)"></div>
+    <div class="row" style="margin-top:12px"><button class="btn ghost" onclick="closeModal()">Close</button></div>`);
+};
 async function renderMatchHistory(matchType){
   const {data} = await sb.from('sttl_match_results')
     .select('*, sttl_challenges!inner(match_type,challenger_id,opponent_id,challenger_partner_id,opponent_partner_id,venue,scheduled_at)')
@@ -622,22 +633,14 @@ async function renderDashboard(){
 
   app.innerHTML = `
   <div class="card"><h2>Your status</h2>
-<div class="row" style="align-items:center; gap:16px;">
-    <!-- Circular Avatar Wrapper -->
-    <div style="width:56px; height:56px; border-radius:50%; overflow:hidden; flex-shrink:0;">
-      <div style="width:100%; height:100%; border-radius:50%; object-fit:cover;">
-        ${avatarHtml(mine,56)}
+    <div class="row" style="align-items:center">
+      ${avatarHtml(mine,56)}
+      <div>
+        <input type="file" id="photo_file" accept="image/*" style="max-width:220px">
+        <button class="btn ghost" id="photo_submit" style="margin-top:6px">Upload photo</button>
+        <div class="error" id="photo_err"></div>
       </div>
     </div>
-
-    <!-- Controls -->
-    <div>
-      <input type="file" id="photo_file" accept="image/*" style="max-width:220px">
-      <button class="btn ghost" id="photo_submit" style="margin-top:6px">Upload photo</button>
-      <div class="error" id="photo_err"></div>
-    </div>
-  </div>
-</div>
     <div class="row" style="margin-top:10px">
       <div class="card" style="margin:0"><div class="muted">Points (rating)</div><div style="font-size:26px;font-weight:700">${mine.rating}</div></div>
       <div class="card" style="margin:0"><div class="muted">Level</div><div style="font-size:20px;font-weight:700">${ratingLevel(mine.rating)}</div></div>
@@ -782,10 +785,7 @@ async function renderPlay(){
   <div class="card"><h2>Outgoing challenges (pending)</h2>
     ${(outgoing&&outgoing.length)? (await Promise.all(outgoing.map(async c=>`<div class="muted" style="padding:6px 0">Waiting on ${await nameOf(c.opponent_id)} (${c.match_type})${c.scheduled_at?` — ${fmtDateTime(c.scheduled_at)}`:''}${c.venue?` at ${esc(c.venue)}`:''}</div>`))).join(''):'<p class="muted">None right now.</p>'}
   </div>
-  <div class="card"><h2>${me.is_subscribed ? 'Your subscription' : (!me.is_subscribed && !isTrialActive(me)) ? 'Subscribe to keep playing' : 'Pay early (optional)'}</h2>
-    <p class="muted">${me.is_subscribed ? "You're subscribed — thank you! You can upload next month's payment here ahead of time if you like." : isTrialActive(me) ? `Your free trial runs until ${fmtDate(me.trial_ends_on)}. You can pay now so your subscription is already active once the trial ends.` : 'Your free trial has ended — pay to keep playing.'}</p>
-    ${paymentUploadHtml()}
-  </div>`;
+  `;
   document.getElementById('mtype').onchange = e=>{
     document.getElementById('partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
   };
@@ -847,27 +847,6 @@ async function renderPlay(){
     if(rErr){ setLoading(btn,false); err.textContent = rErr.message; return; }
     renderPlay();
   };
-  const payBtn = document.getElementById('pay_submit');
-  if(payBtn){
-    payBtn.onclick = async (e)=>{
-      const btn=e.currentTarget;
-      const fileInput=document.getElementById('pay_file');
-      const err=document.getElementById('pay_err');
-      const file=fileInput.files[0];
-      if(!file){ err.textContent='Please choose a screenshot image.'; return; }
-      setLoading(btn,true,'Uploading...');
-      const month = new Date().toISOString().slice(0,7);
-      const path = `${me.id}/${Date.now()}-${file.name}`;
-      const {error:upErr} = await sb.storage.from('payment-screenshots').upload(path, file);
-      if(upErr){ setLoading(btn,false); err.textContent = upErr.message; return; }
-      const {error:insErr} = await sb.from('sttl_payment_proofs').insert({player_id:me.id, month, file_path:path});
-      if(insErr){ setLoading(btn,false); err.textContent = insErr.message; return; }
-      setLoading(btn,false);
-      btn.disabled = true;
-      err.style.color='var(--ok)';
-      err.textContent='Uploaded! Waiting for admin approval.';
-    };
-  }
 }
 
 async function nameOf(id){ const p = players.find(x=>x.id===id) || (id===me.id?me:null); return p? esc(p.name) : id?.slice(0,6); }
@@ -897,14 +876,6 @@ function wireVenuePicker(prefix){
 function getVenueValue(prefix){
   const sel=document.getElementById(prefix+'_select');
   return sel.value==='__other__' ? document.getElementById(prefix+'_other').value.trim() : sel.value;
-}
-function paymentUploadHtml(){
-  return `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);opacity:0.5;pointer-events:none;">
-    <p class="muted">Pay <b>S$?</b> via PayNow using <b>${esc(me.email)}</b> as the payment reference, then upload your screenshot here for admin approval.</p>
-    <input type="file" id="pay_file" accept="image/*" disabled>
-    <button class="btn" id="pay_submit" style="margin-top:8px" disabled>Upload payment screenshot</button>
-    <div class="error" id="pay_err"></div>
-  </div>`;
 }
 window.respondChallenge = async (btn,id,status)=>{
   setLoading(btn,true,'Saving...');
@@ -971,10 +942,6 @@ function renderInfo(){
     <h2>How doubles scoring works</h2>
     <p>Doubles uses the same idea, but based on each <b>team's average rating</b> rather than one person's. Both partners on the winning team gain the same number of points, and both partners on the losing team lose that same number — teammates always move together.</p>
     <p class="muted">Example: Team A is rated 1000 and 1100 (team average 1050). Team B is rated 1200 and 1300 (team average 1250). If Team A pulls off the upset, both Team A players gain 24 points each, while both Team B players drop 24 points each. If Team B wins as expected instead, each player on both sides only moves 8 points.</p>
-    <!--
-    <h2>Paying your S$2 monthly subscription (PayNow, no email needed)</h2>
-    <p>Pay <b>S$2</b> via PayNow, using <b>your account email address as the payment reference</b> so the admin can match it to you. Then go to the <i>Play</i> tab and upload a screenshot of the payment — it appears under Admin → Payment approvals, and your subscription activates once approved.</p>
-    --> 
   </div>`;
   // Shop / discount tiers — commented out for now. To bring it back, remove
   // this comment block and the one closing it below.
@@ -1011,7 +978,6 @@ async function renderAdmin(){
   const {data:cfg} = await sb.from('sttl_app_config').select('*').eq('id',1).single();
   const {data:ccs} = await sb.from('sttl_communities').select('*').order('name');
   const notes = await sb.from('sttl_inactivity_notes').select('*, sttl_players!inner(name)').order('created_at',{ascending:false});
-  const {data:proofs} = await sb.from('sttl_payment_proofs').select('*, sttl_players!inner(name,email)').eq('status','pending').order('submitted_at',{ascending:true});
   const {data:allChallenges} = await sb.from('sttl_challenges').select('*').order('created_at',{ascending:false}).limit(40);
   const chIds = (allChallenges||[]).map(c=>c.id);
   let chResults = [];
@@ -1039,24 +1005,7 @@ async function renderAdmin(){
     <input id="disMonth" value="${cfg?.subscriptions_disabled_month||''}" placeholder="2026-09">
     <button class="btn" id="saveCfg" style="margin-top:10px">Save settings</button>
   </div>
-  <div class="card"><h2>Payment approvals</h2>
-    ${(proofs&&proofs.length)? proofs.map(pf=>{
-      const url = sb.storage.from('payment-screenshots').getPublicUrl(pf.file_path).data.publicUrl;
-      return `<div style="border-bottom:1px solid var(--line);padding:10px 0">
-        <div class="row" style="align-items:center">
-          <a href="${url}" target="_blank"><img src="${url}" alt="payment screenshot" style="max-width:90px;max-height:90px;border-radius:6px;object-fit:cover"></a>
-          <div>
-            <div><b>${esc(pf.sttl_players.name)}</b> <span class="muted">(${esc(pf.sttl_players.email)||''})</span></div>
-            <div class="muted">For ${pf.month} · submitted ${fmtDateTime(pf.submitted_at)}</div>
-          </div>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <button class="btn" onclick="approvePayment(this,'${pf.id}','${pf.player_id}')">Approve</button>
-          <button class="btn ghost" onclick="rejectPayment(this,'${pf.id}')">Reject</button>
-        </div>
-      </div>`;
-    }).join('') : '<p class="muted">No pending payment screenshots.</p>'}
-  </div>
+
   <div class="card"><h2>Add a new player</h2>
     <div class="row">
       <div><label>Name</label><input id="nu_name"></div>
@@ -1103,7 +1052,7 @@ async function renderAdmin(){
   function playerRowHtml(p){
     return `<div class="player-item">
       <div class="player-item-head">
-        <div>👤 <b>${esc(p.name)}</b>${p.is_admin?' <span class="tag">admin</span>':''}</div>
+        <div>${avatarHtml(p,30)}<b>${esc(p.name)}</b>${p.is_admin?' <span class="tag">admin</span>':''}</div>
         <div class="muted" style="font-size:12px">✉️ ${esc(p.email)||'—'}</div>
       </div>
       <div class="player-item-meta">
@@ -1113,7 +1062,9 @@ async function renderAdmin(){
       </div>
       <div class="player-item-meta">
         ${p.is_approved?'<span class="badge ok">✅ Approved</span>':'<span class="badge warn">⏳ Pending</span>'}
-        ${p.is_subscribed?'<span class="badge ok">💳 Subscribed</span>':'<span class="badge muted">🚫 Not subscribed</span>'}
+        <label style="display:inline-flex;align-items:center;gap:4px;margin:0;font-size:13px;cursor:pointer">
+          <input type="checkbox" ${p.is_subscribed?'checked':''} onchange="toggleSubscription(this,'${p.id}')"> 💳 Subscribed
+        </label>
       </div>
       <div class="row" style="margin-top:8px">
         ${!p.is_approved?`<button class="btn" onclick="approveUser(this,'${p.id}')">✅ Approve</button>`:''}
@@ -1175,23 +1126,19 @@ async function renderAdmin(){
   };
 }
 window.approveUser = async (btn,id)=>{ setLoading(btn,true,'Approving...'); await sb.from('sttl_players').update({is_approved:true}).eq('id',id); renderAdmin(); };
+window.toggleSubscription = async (checkbox,id)=>{
+  const newVal = checkbox.checked;
+  checkbox.disabled = true;
+  const {error} = await sb.from('sttl_players').update({is_subscribed:newVal}).eq('id',id);
+  checkbox.disabled = false;
+  if(error){ alert('Could not update subscription: '+error.message); checkbox.checked = !newVal; }
+};
 window.deleteMatch = async (btn,challengeId)=>{
   if(!confirm('Delete this match? This removes the challenge and any recorded result.\nIt will NOT reverse rating points already applied.')) return;
   setLoading(btn,true,'Deleting...');
   const {error} = await sb.from('sttl_challenges').delete().eq('id',challengeId);
   setLoading(btn,false);
   if(error){ alert('Could not delete match: '+error.message); return; }
-  renderAdmin();
-};
-window.approvePayment = async (btn,proofId,playerId)=>{
-  setLoading(btn,true,'Approving...');
-  await sb.from('sttl_payment_proofs').update({status:'approved', reviewed_at:new Date().toISOString(), reviewed_by:me.id}).eq('id',proofId);
-  await sb.from('sttl_players').update({is_subscribed:true}).eq('id',playerId);
-  renderAdmin();
-};
-window.rejectPayment = async (btn,proofId)=>{
-  setLoading(btn,true,'Rejecting...');
-  await sb.from('sttl_payment_proofs').update({status:'rejected', reviewed_at:new Date().toISOString(), reviewed_by:me.id}).eq('id',proofId);
   renderAdmin();
 };
 window.deleteUser = async (btn,id)=>{
