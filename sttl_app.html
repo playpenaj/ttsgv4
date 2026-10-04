@@ -892,7 +892,7 @@ function getVenueValue(prefix){
 }
 function paymentUploadHtml(){
   return `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);opacity:0.5;pointer-events:none;">
-    <p class="muted">Pay <b>S$2</b> via PayNow using <b>${esc(me.email)}</b> as the payment reference, then upload your screenshot here for admin approval.</p>
+    <p class="muted">Pay <b>S$?</b> via PayNow using <b>${esc(me.email)}</b> as the payment reference, then upload your screenshot here for admin approval.</p>
     <input type="file" id="pay_file" accept="image/*" disabled>
     <button class="btn" id="pay_submit" style="margin-top:8px" disabled>Upload payment screenshot</button>
     <div class="error" id="pay_err"></div>
