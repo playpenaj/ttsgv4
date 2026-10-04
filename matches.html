@@ -4,39 +4,35 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Round-Robin Table Tennis Tournament Manager</title>
-  <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- SheetJS CDN for exporting to Excel (.xlsx) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <!-- Google Font Inter -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Inter', sans-serif; }
   </style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen p-4 sm:p-8">
+<body class="bg-slate-900 text-slate-100 min-h-screen p-3 sm:p-6 lg:p-8">
 
   <div class="max-w-6xl mx-auto space-y-6">
     
-    <!-- Header -->
+    <!-- Header Controls -->
     <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center border-b border-slate-800 pb-4 gap-4">
       <div>
         <h1 class="text-2xl sm:text-3xl font-extrabold text-emerald-400 flex items-center gap-2">
           🏓 Table Tennis Round-Robin Manager
         </h1>
         <p class="text-xs sm:text-sm text-slate-400 mt-1">
-          Balanced Sequential Rounds • Collapsible Fixtures • Cumulative JSON Snapshots & Restoration
+          Sequential Rounds • Collapsible Accordions • Locked Schedule Mid-Tournament • Mid-Event Player Additions
         </p>
       </div>
       <div class="flex flex-wrap gap-2 w-full lg:w-auto">
-        <!-- Import JSON File Hidden Input -->
         <input type="file" id="importJsonInput" accept=".json" class="hidden" onchange="importJSONBackup(event)">
         
         <button onclick="document.getElementById('importJsonInput').click()" class="flex-1 lg:flex-initial bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-3.5 py-2.5 rounded-xl border border-indigo-500/50 shadow-md transition active:scale-95 flex items-center justify-center gap-1.5">
-          📥 Import JSON Backup
+          📥 Import JSON
         </button>
         <button onclick="exportToExcel()" class="flex-1 lg:flex-initial bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-3.5 py-2.5 rounded-xl shadow-md transition active:scale-95 flex items-center justify-center gap-1.5">
-          📊 Export Excel (.xlsx)
+          📊 Export Excel
         </button>
         <button onclick="exportToCSV()" class="flex-1 lg:flex-initial bg-slate-700 hover:bg-slate-600 text-white font-semibold text-xs px-3.5 py-2.5 rounded-xl border border-slate-600 transition active:scale-95 flex items-center justify-center gap-1.5">
           📄 Export CSV
@@ -44,45 +40,63 @@
       </div>
     </div>
 
-    <!-- Notification / Persistence Badge -->
+    <!-- Status Toast Banner -->
     <div id="statusToast" class="bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 px-4 py-2.5 rounded-xl text-xs flex items-center justify-between shadow-lg">
       <span class="flex items-center gap-2">
         <span class="relative flex h-2.5 w-2.5">
           <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
           <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
         </span>
-        <span id="toastMsg">LocalStorage auto-save active. State updates dynamically.</span>
+        <span id="toastMsg">Tournament manager ready. State saved in LocalStorage.</span>
       </span>
       <span class="text-[10px] text-emerald-400/70 font-mono uppercase tracking-wider">PERSISTED</span>
     </div>
 
-    <!-- Bulk Name Input Area -->
-    <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 shadow-xl space-y-3">
+    <!-- Player Management Section -->
+    <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 shadow-xl space-y-4">
       <div class="flex justify-between items-center">
         <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
-          1. Bulk Input Player Names
+          1. Player Entry & Tournament Control
         </h2>
-        <span class="text-xs text-slate-400">Comma or line separated</span>
+        <span id="tournamentLockBadge" class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md font-mono">
+          Status: Ready to Start
+        </span>
       </div>
-      
-      <textarea id="bulkNames" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono" placeholder="e.g. Player 1, Player 2, Player 3, Player 4, Player 5"></textarea>
-      
-      <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-        <button onclick="generateTable()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-lg shadow-emerald-500/10 active:scale-95 flex items-center justify-center gap-1">
-          ⚡ Generate Balanced Round-Robin Schedule
-        </button>
-        <button onclick="clearAllData()" class="text-xs text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1 justify-center">
-          🗑️ Reset Tournament & Clear Storage
+
+      <!-- Textarea for Bulk Entry or Late Additions -->
+      <div>
+        <label for="bulkNames" id="bulkNamesLabel" class="block text-xs text-slate-400 mb-1.5 font-medium">
+          Enter player names (Comma or line separated):
+        </label>
+        <textarea id="bulkNames" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono placeholder:text-slate-600" placeholder="e.g. Alex, Jordan, Taylor, Sam, Morgan"></textarea>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 pt-1">
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Initial Fixture Generation with Shuffling -->
+          <button id="btnGenerate" onclick="generateInitialTournament()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-lg shadow-emerald-500/10 active:scale-95 flex items-center justify-center gap-1.5">
+            🎲 Shuffle & Start New Tournament
+          </button>
+          
+          <!-- Mid-Tournament Add Late Player Button -->
+          <button id="btnAddLate" onclick="addLatePlayers()" class="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-lg shadow-amber-600/10 active:scale-95 flex items-center justify-center gap-1.5 hidden">
+            ➕ Add Late Player(s)
+          </button>
+        </div>
+
+        <button onclick="clearAllData()" class="text-xs text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1 justify-center py-1">
+          🗑️ Reset All Data
         </button>
       </div>
     </div>
 
-    <!-- 2. Match Results Table (PRIMARY VIEW AT TOP) -->
+    <!-- 2. Match Results Table (Top View) -->
     <div class="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
       <div class="p-4 border-b border-slate-700 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-800/80 gap-3">
         <div>
           <h2 class="text-sm font-semibold text-slate-200">2. Round-Robin Match Fixtures</h2>
-          <p class="text-xs text-slate-400">Matches grouped by Round. Click any Round header to toggle collapse/expand.</p>
+          <p class="text-xs text-slate-400">Sequential round fixtures. Click round header to expand/collapse.</p>
         </div>
         <div class="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
           <button onclick="toggleAllRounds(true)" class="text-[11px] bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-600 font-medium transition">
@@ -95,22 +109,22 @@
         </div>
       </div>
 
-      <!-- Container for Collapsible Round Cards -->
+      <!-- Container for Collapsible Round Accordions -->
       <div id="roundsContainer" class="p-4 space-y-4">
         <div class="text-center py-8 text-slate-500 text-xs">
-          No matches loaded. Enter player names above to generate balanced round-by-round fixtures.
+          No matches generated yet. Enter player names above and click "Shuffle & Start New Tournament".
         </div>
       </div>
     </div>
 
-    <!-- 3. Player Summary Standings Table (MOVED BELOW) -->
+    <!-- 3. Player Summary Standings Table (Bottom View) -->
     <div class="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
       <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/80">
         <div>
           <h2 class="text-sm font-semibold text-emerald-400 flex items-center gap-2">
             🏆 Player Standings & Summary
           </h2>
-          <p class="text-xs text-slate-400">Updates dynamically as match results are submitted and saved.</p>
+          <p class="text-xs text-slate-400">Live rankings based on completed matches.</p>
         </div>
         <span id="playerCounter" class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-full font-semibold">0 Players</span>
       </div>
@@ -131,7 +145,7 @@
           <tbody id="summaryBody" class="divide-y divide-slate-700/50">
             <tr>
               <td colspan="7" class="text-center py-6 text-slate-500 text-xs">
-                No player statistics available yet. Enter player names above to start.
+                No player statistics available yet. Start a tournament above.
               </td>
             </tr>
           </tbody>
@@ -142,31 +156,89 @@
   </div>
 
   <script>
-    const STORAGE_KEY = "TT_TOURNAMENT_APP_DATA_V3";
-    let playersList = [];
-    let matches = [];
-    // State object tracking collapse status per round (e.g. { 1: false, 2: true })
-    let roundCollapseState = {};
+    const STORAGE_KEY = "TT_TOURNAMENT_APP_DATA_V4";
+    
+    // Core Application State
+    let playersList = [];          // Ordered list of active player names
+    let matches = [];              // Array of match objects
+    let roundCollapseState = {};   // { 1: false, 2: true } mapping round to collapse state
+    let tournamentStarted = false; // Flag indicating if at least 1 match was submitted/started
 
-    // Load state from localStorage on page load
+    // Initialize application on load
     window.addEventListener('DOMContentLoaded', () => {
       loadFromLocalStorage();
     });
 
-    // Save entire tournament state to Browser LocalStorage
+    /**
+     * Fisher-Yates Random Shuffle algorithm
+     */
+    function shuffleArray(array) {
+      const arr = [...array];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    /**
+     * Checks if tournament has started (any submitted match exists)
+     */
+    function isTournamentInProgress() {
+      return matches.some(m => m.submitted);
+    }
+
+    /**
+     * Updates UI controls depending on whether tournament has started/locked
+     */
+    function updateLockUI() {
+      tournamentStarted = isTournamentInProgress();
+      const badge = document.getElementById('tournamentLockBadge');
+      const btnGenerate = document.getElementById('btnGenerate');
+      const btnAddLate = document.getElementById('btnAddLate');
+      const bulkLabel = document.getElementById('bulkNamesLabel');
+      const bulkArea = document.getElementById('bulkNames');
+
+      if (tournamentStarted) {
+        badge.innerHTML = `🔒 Tournament In Progress (Locked)`;
+        badge.className = "text-xs bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-md font-semibold font-mono";
+        
+        btnGenerate.classList.add('hidden');
+        btnAddLate.classList.remove('hidden');
+        
+        bulkLabel.innerText = "Add Late Player(s) (Names entered here will be added without disrupting played matches):";
+        bulkArea.placeholder = "Enter name(s) of new player(s) joining late...";
+      } else {
+        badge.innerHTML = `Status: Ready to Start`;
+        badge.className = "text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md font-mono";
+        
+        btnGenerate.classList.remove('hidden');
+        btnAddLate.classList.add('hidden');
+        
+        bulkLabel.innerText = "Enter player names (Comma or line separated):";
+        bulkArea.placeholder = "e.g. Alex, Jordan, Taylor, Sam, Morgan";
+      }
+    }
+
+    /**
+     * Saves tournament state to browser LocalStorage
+     */
     function saveToLocalStorage() {
       const state = {
         playersList: playersList,
         matches: matches,
         roundCollapseState: roundCollapseState,
+        tournamentStarted: tournamentStarted,
         bulkInputText: document.getElementById('bulkNames').value,
         updatedAt: new Date().toISOString()
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      showToast("Tournament state saved to Browser LocalStorage!");
+      showToast("State saved to Browser LocalStorage.");
     }
 
-    // Load state from Browser LocalStorage
+    /**
+     * Loads tournament state from browser LocalStorage
+     */
     function loadFromLocalStorage() {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -175,106 +247,48 @@
           playersList = state.playersList || [];
           matches = state.matches || [];
           roundCollapseState = state.roundCollapseState || {};
-          if (state.bulkInputText) {
+          tournamentStarted = state.tournamentStarted || false;
+          
+          if (state.bulkInputText && !isTournamentInProgress()) {
             document.getElementById('bulkNames').value = state.bulkInputText;
           }
+          
           renderRounds();
           renderSummaryTable();
-          showToast("Loaded saved tournament data from local browser storage.");
+          updateLockUI();
+          showToast("Loaded saved tournament data.");
         } catch (e) {
-          console.error("Failed to parse stored tournament data", e);
+          console.error("Failed to parse local storage data", e);
         }
       }
-    }
-
-    // Download FULL cumulative snapshot JSON file containing ALL tournament state
-    function downloadCumulativeJSONBackup(lastActionMatch) {
-      const fullSnapshot = {
-        app: "Table Tennis Round-Robin Tournament Manager",
-        version: "3.0",
-        lastUpdated: new Date().toISOString(),
-        lastAction: lastActionMatch ? `Submitted Match #${lastActionMatch.id} (Round ${lastActionMatch.round})` : "Manual Export",
-        players: playersList,
-        standings: calculatePlayerStats(),
-        roundCollapseState: roundCollapseState,
-        matches: matches
-      };
-
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(fullSnapshot, null, 2));
-      const downloadAnchor = document.createElement('a');
-      const filename = `TT_Tournament_FullBackup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-      
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", filename);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-
-      showToast(`Saved cumulative backup JSON file: ${filename}`);
-    }
-
-    // Import and restore snapshot JSON file
-    function importJSONBackup(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        try {
-          const data = JSON.parse(e.target.result);
-          if (!data.players || !data.matches) {
-            alert("Invalid tournament backup file format!");
-            return;
-          }
-
-          if (confirm(`Restore tournament with ${data.players.length} players and ${data.matches.length} matches?\n\nThis will overwrite current in-memory tournament data.`)) {
-            playersList = data.players || [];
-            matches = data.matches || [];
-            roundCollapseState = data.roundCollapseState || {};
-            document.getElementById('bulkNames').value = playersList.join(', ');
-
-            saveToLocalStorage();
-            renderRounds();
-            renderSummaryTable();
-            showToast("Successfully imported and restored tournament backup!");
-          }
-        } catch (err) {
-          alert("Error reading JSON backup file: " + err.message);
-        }
-      };
-      reader.readAsText(file);
-      // Reset input value so same file can be re-uploaded if needed
-      event.target.value = '';
     }
 
     /**
-     * Generates Round-Robin matches strictly grouped by Rounds using Berger's Circle algorithm.
+     * Berger Circle Algorithm to build round-by-round fixtures
      */
-    function generateBalancedRoundRobin(players) {
+    function buildRoundRobinSchedule(players) {
       let pool = [...players];
-      const isOdd = pool.length % 2 !== 0;
-      if (isOdd) {
+      if (pool.length % 2 !== 0) {
         pool.push("BYE");
       }
 
-      const numPlayers = pool.length;
-      const totalRounds = numPlayers - 1;
-      const matchesPerRound = numPlayers / 2;
+      const n = pool.length;
+      const totalRounds = n - 1;
+      const matchesPerRound = n / 2;
+      let scheduledMatches = [];
+      let matchId = 1;
 
-      let allMatches = [];
-      let matchIdCounter = 1;
+      let roundPool = [...pool];
 
-      let roundPlayers = [...pool];
-
-      for (let round = 1; round <= totalRounds; round++) {
+      for (let r = 1; r <= totalRounds; r++) {
         for (let i = 0; i < matchesPerRound; i++) {
-          const p1 = roundPlayers[i];
-          const p2 = roundPlayers[numPlayers - 1 - i];
+          const p1 = roundPool[i];
+          const p2 = roundPool[n - 1 - i];
 
           if (p1 !== "BYE" && p2 !== "BYE") {
-            allMatches.push({
-              id: matchIdCounter++,
-              round: round,
+            scheduledMatches.push({
+              id: matchId++,
+              round: r,
               player1: p1,
               player2: p2,
               winner: "",
@@ -284,46 +298,104 @@
           }
         }
 
-        // Rotate circle
-        const fixed = roundPlayers[0];
-        const last = roundPlayers[roundPlayers.length - 1];
-        const rest = roundPlayers.slice(1, roundPlayers.length - 1);
-        roundPlayers = [fixed, last, ...rest];
+        // Circle rotation (keep fixed first element)
+        const fixed = roundPool[0];
+        const last = roundPool[roundPool.length - 1];
+        const rest = roundPool.slice(1, roundPool.length - 1);
+        roundPool = [fixed, last, ...rest];
       }
 
-      return allMatches;
+      return scheduledMatches;
     }
 
-    // Generate tournament fixtures from bulk names
-    function generateTable() {
+    /**
+     * Initial Tournament Generation with mandatory Random Shuffling
+     */
+    function generateInitialTournament() {
+      if (isTournamentInProgress()) {
+        alert("Tournament is already in progress and locked! You cannot re-shuffle. Use 'Add Late Player(s)' instead.");
+        return;
+      }
+
       const text = document.getElementById('bulkNames').value;
       let rawNames = text.split(/[\n,]+/).map(n => n.trim()).filter(n => n.length > 0);
+      let uniqueNames = [...new Set(rawNames)];
 
-      playersList = [...new Set(rawNames)];
-
-      if (playersList.length < 2) {
-        alert("Please enter at least 2 unique player names to generate matches.");
+      if (uniqueNames.length < 2) {
+        alert("Please enter at least 2 unique player names to start the tournament.");
         return;
       }
 
-      if (matches.length > 0 && !confirm("Generating new fixtures will reset existing match entries. Continue?")) {
-        return;
-      }
+      // Shuffles player list randomly (Fisher-Yates)
+      playersList = shuffleArray(uniqueNames);
+      matches = buildRoundRobinSchedule(playersList);
+      roundCollapseState = {};
 
-      matches = generateBalancedRoundRobin(playersList);
-      roundCollapseState = {}; // default all expanded
       saveToLocalStorage();
       renderRounds();
       renderSummaryTable();
+      updateLockUI();
+      
+      showToast(`Shuffled ${playersList.length} players randomly and generated ${matches.length} matches!`);
     }
 
-    // Calculate dynamic player stats
+    /**
+     * Mid-Tournament Addition: Appends late players without reshuffling existing player order or un-locking played matches
+     */
+    function addLatePlayers() {
+      const text = document.getElementById('bulkNames').value;
+      let newNames = text.split(/[\n,]+/).map(n => n.trim()).filter(n => n.length > 0);
+      
+      // Filter out existing players
+      let playersToAdd = newNames.filter(n => !playersList.includes(n));
+      playersToAdd = [...new Set(playersToAdd)];
+
+      if (playersToAdd.length === 0) {
+        alert("No new unique player names were found in the text box.");
+        return;
+      }
+
+      if (!confirm(`Add ${playersToAdd.length} new player(s) (${playersToAdd.join(', ')}) to the active tournament?\n\nThis will keep all played matches untouched and append necessary new fixtures.`)) {
+        return;
+      }
+
+      const combinedPlayers = [...playersList, ...playersToAdd];
+      const fullNewSchedule = buildRoundRobinSchedule(combinedPlayers);
+
+      // Preserve completed match results
+      const existingMatchesMap = {};
+      matches.forEach(m => {
+        const key = [m.player1, m.player2].sort().join(" vs ");
+        existingMatchesMap[key] = m;
+      });
+
+      // Merge new schedule with existing match states
+      let updatedMatches = fullNewSchedule.map(nm => {
+        const key = [nm.player1, nm.player2].sort().join(" vs ");
+        if (existingMatchesMap[key]) {
+          return existingMatchesMap[key]; // Preserve locked status & winner
+        }
+        return nm;
+      });
+
+      playersList = combinedPlayers;
+      matches = updatedMatches;
+      document.getElementById('bulkNames').value = '';
+
+      saveToLocalStorage();
+      renderRounds();
+      renderSummaryTable();
+      updateLockUI();
+
+      showToast(`Added ${playersToAdd.length} new player(s) seamlessly! Total players: ${playersList.length}`);
+    }
+
     function calculatePlayerStats() {
       const stats = {};
 
-      playersList.forEach(player => {
-        stats[player] = {
-          name: player,
+      playersList.forEach(p => {
+        stats[p] = {
+          name: p,
           totalScheduled: 0,
           played: 0,
           wins: 0,
@@ -340,7 +412,6 @@
           if (stats[m.player2]) stats[m.player2].played++;
 
           const loser = m.winner === m.player1 ? m.player2 : m.player1;
-          
           if (stats[m.winner]) stats[m.winner].wins++;
           if (stats[loser]) stats[loser].losses++;
         }
@@ -354,14 +425,13 @@
       });
     }
 
-    // Toggle collapse state for a specific round
+    // Accordion Toggle handlers
     function toggleRoundCollapse(roundNum) {
       roundCollapseState[roundNum] = !roundCollapseState[roundNum];
       saveToLocalStorage();
       renderRounds();
     }
 
-    // Master expand/collapse toggle for all rounds
     function toggleAllRounds(expand) {
       const rounds = [...new Set(matches.map(m => m.round))];
       rounds.forEach(r => {
@@ -371,7 +441,6 @@
       renderRounds();
     }
 
-    // Render match fixtures structured inside collapsible round cards
     function renderRounds() {
       const container = document.getElementById('roundsContainer');
       const counter = document.getElementById('matchCounter');
@@ -381,7 +450,7 @@
       if (matches.length === 0) {
         container.innerHTML = `
           <div class="text-center py-8 text-slate-500 text-xs">
-            No matches loaded. Enter player names above to generate balanced round-by-round fixtures.
+            No matches generated yet. Enter player names above and click "Shuffle & Start New Tournament".
           </div>`;
         return;
       }
@@ -404,7 +473,7 @@
         const roundCard = document.createElement('div');
         roundCard.className = "bg-slate-900 border border-slate-700/80 rounded-xl overflow-hidden transition shadow-sm";
 
-        // Round Card Header
+        // Accordion Header
         const roundHeader = document.createElement('div');
         roundHeader.className = "p-3 px-4 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between cursor-pointer select-none hover:bg-slate-700/50 transition";
         roundHeader.onclick = () => toggleRoundCollapse(roundNum);
@@ -434,7 +503,7 @@
 
         roundCard.appendChild(roundHeader);
 
-        // If not collapsed, display match list table inside round card
+        // Accordion Content Table
         if (!isCollapsed) {
           const tableContainer = document.createElement('div');
           tableContainer.className = "overflow-x-auto";
@@ -507,7 +576,6 @@
       });
     }
 
-    // Submit match result, lock entry, save cumulative state, and download full snapshot file
     function submitMatch(matchId) {
       const match = matches.find(m => m.id === matchId);
       const selectElement = document.getElementById(`winner-${matchId}`);
@@ -518,24 +586,86 @@
         return;
       }
 
-      if (confirm(`Confirm ${chosenWinner} as winner for Match #${matchId} (Round ${match.round})?\n\nThis will lock the match and automatically download a full cumulative JSON backup file containing all tournament data up to this point.`)) {
+      if (confirm(`Confirm ${chosenWinner} as winner for Match #${matchId} (Round ${match.round})?\n\nThis will lock the match and automatically download a full cumulative JSON snapshot file.`)) {
         match.winner = chosenWinner;
         match.submitted = true;
         match.timestamp = new Date().toISOString();
 
-        // Save state to LocalStorage
         saveToLocalStorage();
-
-        // Re-render UI views
         renderRounds();
         renderSummaryTable();
+        updateLockUI();
 
-        // Download full cumulative tournament snapshot JSON
+        // Download cumulative state JSON file
         downloadCumulativeJSONBackup(match);
       }
     }
 
-    // Render player standings table
+    /**
+     * Download full snapshot JSON file on match submission
+     */
+    function downloadCumulativeJSONBackup(lastActionMatch) {
+      const fullSnapshot = {
+        app: "Table Tennis Round-Robin Tournament Manager",
+        version: "4.0",
+        lastUpdated: new Date().toISOString(),
+        lastAction: lastActionMatch ? `Submitted Match #${lastActionMatch.id} (Round ${lastActionMatch.round})` : "Manual Export",
+        players: playersList,
+        tournamentStarted: tournamentStarted,
+        standings: calculatePlayerStats(),
+        roundCollapseState: roundCollapseState,
+        matches: matches
+      };
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(fullSnapshot, null, 2));
+      const downloadAnchor = document.createElement('a');
+      const filename = `TT_Tournament_Snapshot_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", filename);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      showToast(`Saved snapshot JSON file: ${filename}`);
+    }
+
+    /**
+     * Import JSON backup file
+     */
+    function importJSONBackup(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (!data.players || !data.matches) {
+            alert("Invalid tournament backup file format!");
+            return;
+          }
+
+          if (confirm(`Restore tournament with ${data.players.length} players and ${data.matches.length} matches?\n\nThis will replace current in-memory tournament data.`)) {
+            playersList = data.players || [];
+            matches = data.matches || [];
+            roundCollapseState = data.roundCollapseState || {};
+            tournamentStarted = data.tournamentStarted || isTournamentInProgress();
+            
+            saveToLocalStorage();
+            renderRounds();
+            renderSummaryTable();
+            updateLockUI();
+            showToast("Tournament restored successfully from JSON backup!");
+          }
+        } catch (err) {
+          alert("Error reading JSON backup file: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
     function renderSummaryTable() {
       const summaryBody = document.getElementById('summaryBody');
       const counter = document.getElementById('playerCounter');
@@ -571,21 +701,24 @@
       });
     }
 
-    // Reset tournament memory and LocalStorage
+    // Reset tournament memory
     function clearAllData() {
       if (confirm("Are you sure you want to delete all tournament data and clear local browser memory?")) {
         localStorage.removeItem(STORAGE_KEY);
         playersList = [];
         matches = [];
         roundCollapseState = {};
+        tournamentStarted = false;
         document.getElementById('bulkNames').value = '';
+        
         renderRounds();
         renderSummaryTable();
+        updateLockUI();
         showToast("All local tournament data cleared!");
       }
     }
 
-    // Export tournament data to Excel (.xlsx)
+    // Export to Excel (.xlsx)
     function exportToExcel() {
       if (matches.length === 0) {
         alert("No match data available to export!");
@@ -623,7 +756,7 @@
       XLSX.writeFile(workbook, `TT_Tournament_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
-    // Export tournament data to CSV
+    // Export to CSV
     function exportToCSV() {
       if (matches.length === 0) {
         alert("No match data available to export!");
