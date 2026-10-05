@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Round-Robin Table Tennis Tournament Manager</title>
+  <title>Round-Robin Table Tennis Manager (Singles & Doubles)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -19,10 +19,10 @@
     <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center border-b border-slate-800 pb-4 gap-4">
       <div>
         <h1 class="text-2xl sm:text-3xl font-extrabold text-emerald-400 flex items-center gap-2">
-          🏓 Table Tennis Round-Robin Manager
+          🏓 Table Tennis Manager
         </h1>
         <p class="text-xs sm:text-sm text-slate-400 mt-1">
-          Sequential Rounds • Collapsible Accordions • Locked Schedule Mid-Tournament • Mid-Event Player Additions
+          Singles & Doubles Modes • Sequential Rounds • Collapsible Accordions • Auto/Manual Team Pairing
         </p>
       </div>
       <div class="flex flex-wrap gap-2 w-full lg:w-auto">
@@ -54,34 +54,65 @@
 
     <!-- Player Management Section -->
     <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 shadow-xl space-y-4">
-      <div class="flex justify-between items-center">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-700/60 pb-3">
         <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
-          1. Player Entry & Tournament Control
+          1. Tournament Setup & Player Entry
         </h2>
         <span id="tournamentLockBadge" class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md font-mono">
           Status: Ready to Start
         </span>
       </div>
 
-      <!-- Textarea for Bulk Entry or Late Additions -->
+      <!-- Mode & Pairing Selectors -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Tournament Mode:</label>
+          <div class="flex gap-3">
+            <label class="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer hover:border-slate-500 transition">
+              <input type="radio" name="tournamentMode" value="singles" checked onchange="handleModeChange()" id="modeSingles" class="text-emerald-500 focus:ring-emerald-500">
+              <span class="text-xs font-semibold text-slate-200">👤 Singles (1v1)</span>
+            </label>
+            <label class="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer hover:border-slate-500 transition">
+              <input type="radio" name="tournamentMode" value="doubles" onchange="handleModeChange()" id="modeDoubles" class="text-emerald-500 focus:ring-emerald-500">
+              <span class="text-xs font-semibold text-slate-200">👥 Doubles (2v2)</span>
+            </label>
+          </div>
+        </div>
+
+        <div id="doublesPairingContainer" class="hidden">
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Doubles Team Formation Method:</label>
+          <div class="flex gap-3">
+            <label class="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer hover:border-slate-500 transition">
+              <input type="radio" name="doublesPairing" value="auto" checked onchange="handlePairingOptionChange()" id="pairingAuto" class="text-emerald-500 focus:ring-emerald-500">
+              <span class="text-xs font-medium text-slate-200">🎲 Auto-Pair Individual Names</span>
+            </label>
+            <label class="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer hover:border-slate-500 transition">
+              <input type="radio" name="doublesPairing" value="manual" onchange="handlePairingOptionChange()" id="pairingManual" class="text-emerald-500 focus:ring-emerald-500">
+              <span class="text-xs font-medium text-slate-200">✏️ Manual Pairs (e.g. A & B)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Textarea for Names / Teams -->
       <div>
         <label for="bulkNames" id="bulkNamesLabel" class="block text-xs text-slate-400 mb-1.5 font-medium">
           Enter player names (Comma or line separated):
         </label>
-        <textarea id="bulkNames" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono placeholder:text-slate-600" placeholder="e.g. Alex, Jordan, Taylor, Sam, Morgan"></textarea>
+        <textarea id="bulkNames" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono placeholder:text-slate-600" placeholder="e.g. Alex, Jordan, Taylor, Sam, Morgan, Chris"></textarea>
       </div>
 
       <!-- Action Buttons -->
       <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 pt-1">
         <div class="flex flex-wrap items-center gap-2">
-          <!-- Initial Fixture Generation with Shuffling -->
+          <!-- Initial Fixture Generation -->
           <button id="btnGenerate" onclick="generateInitialTournament()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-lg shadow-emerald-500/10 active:scale-95 flex items-center justify-center gap-1.5">
             🎲 Shuffle & Start New Tournament
           </button>
           
-          <!-- Mid-Tournament Add Late Player Button -->
-          <button id="btnAddLate" onclick="addLatePlayers()" class="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-lg shadow-amber-600/10 active:scale-95 flex items-center justify-center gap-1.5 hidden">
-            ➕ Add Late Player(s)
+          <!-- Mid-Tournament Add Late Entry Button -->
+          <button id="btnAddLate" onclick="addLateEntries()" class="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-lg shadow-amber-600/10 active:scale-95 flex items-center justify-center gap-1.5 hidden">
+            ➕ Add Late Entry/Player(s)
           </button>
         </div>
 
@@ -112,21 +143,21 @@
       <!-- Container for Collapsible Round Accordions -->
       <div id="roundsContainer" class="p-4 space-y-4">
         <div class="text-center py-8 text-slate-500 text-xs">
-          No matches generated yet. Enter player names above and click "Shuffle & Start New Tournament".
+          No matches generated yet. Enter player/team names above and click "Shuffle & Start New Tournament".
         </div>
       </div>
     </div>
 
-    <!-- 3. Player Summary Standings Table (Bottom View) -->
+    <!-- 3. Summary Standings Table (Bottom View) -->
     <div class="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
       <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/80">
         <div>
-          <h2 class="text-sm font-semibold text-emerald-400 flex items-center gap-2">
-            🏆 Player Standings & Summary
+          <h2 id="standingsTitle" class="text-sm font-semibold text-emerald-400 flex items-center gap-2">
+            🏆 Player / Team Standings & Summary
           </h2>
           <p class="text-xs text-slate-400">Live rankings based on completed matches.</p>
         </div>
-        <span id="playerCounter" class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-full font-semibold">0 Players</span>
+        <span id="participantCounter" class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-full font-semibold">0 Participants</span>
       </div>
 
       <div class="overflow-x-auto">
@@ -134,7 +165,7 @@
           <thead class="bg-slate-900/90 text-xs text-slate-400 uppercase border-b border-slate-700">
             <tr>
               <th class="py-3 px-4 w-12 text-center">Rank</th>
-              <th class="py-3 px-4">Player Name</th>
+              <th id="thParticipantName" class="py-3 px-4">Participant / Team Name</th>
               <th class="py-3 px-4 text-center">Scheduled</th>
               <th class="py-3 px-4 text-center">Played</th>
               <th class="py-3 px-4 text-center text-emerald-400">Wins</th>
@@ -145,7 +176,7 @@
           <tbody id="summaryBody" class="divide-y divide-slate-700/50">
             <tr>
               <td colspan="7" class="text-center py-6 text-slate-500 text-xs">
-                No player statistics available yet. Start a tournament above.
+                No statistics available yet. Start a tournament above.
               </td>
             </tr>
           </tbody>
@@ -156,22 +187,20 @@
   </div>
 
   <script>
-    const STORAGE_KEY = "TT_TOURNAMENT_APP_DATA_V4";
+    const STORAGE_KEY = "TT_TOURNAMENT_APP_DATA_V5";
     
     // Core Application State
-    let playersList = [];          // Ordered list of active player names
+    let tournamentMode = "singles"; // "singles" or "doubles"
+    let doublesPairing = "auto";    // "auto" or "manual"
+    let participants = [];         // List of active player/team display names
     let matches = [];              // Array of match objects
     let roundCollapseState = {};   // { 1: false, 2: true } mapping round to collapse state
-    let tournamentStarted = false; // Flag indicating if at least 1 match was submitted/started
+    let tournamentStarted = false; // Flag indicating if at least 1 match was submitted
 
-    // Initialize application on load
     window.addEventListener('DOMContentLoaded', () => {
       loadFromLocalStorage();
     });
 
-    /**
-     * Fisher-Yates Random Shuffle algorithm
-     */
     function shuffleArray(array) {
       const arr = [...array];
       for (let i = arr.length - 1; i > 0; i--) {
@@ -181,16 +210,47 @@
       return arr;
     }
 
-    /**
-     * Checks if tournament has started (any submitted match exists)
-     */
     function isTournamentInProgress() {
       return matches.some(m => m.submitted);
     }
 
-    /**
-     * Updates UI controls depending on whether tournament has started/locked
-     */
+    function handleModeChange() {
+      if (isTournamentInProgress()) {
+        updateLockUI();
+        return;
+      }
+      tournamentMode = document.querySelector('input[name="tournamentMode"]:checked').value;
+      const doublesContainer = document.getElementById('doublesPairingContainer');
+      const bulkLabel = document.getElementById('bulkNamesLabel');
+      const bulkArea = document.getElementById('bulkNames');
+
+      if (tournamentMode === 'doubles') {
+        doublesContainer.classList.remove('hidden');
+        handlePairingOptionChange();
+      } else {
+        doublesContainer.classList.add('hidden');
+        bulkLabel.innerText = "Enter player names (Comma or line separated):";
+        bulkArea.placeholder = "e.g. Alex, Jordan, Taylor, Sam, Morgan, Chris";
+      }
+    }
+
+    function handlePairingOptionChange() {
+      if (isTournamentInProgress()) return;
+      doublesPairing = document.querySelector('input[name="doublesPairing"]:checked').value;
+      const bulkLabel = document.getElementById('bulkNamesLabel');
+      const bulkArea = document.getElementById('bulkNames');
+
+      if (tournamentMode === 'doubles') {
+        if (doublesPairing === 'auto') {
+          bulkLabel.innerText = "Enter individual player names (Comma or line separated) - system will auto-pair into 2-person teams:";
+          bulkArea.placeholder = "e.g. Alex, Jordan, Taylor, Sam, Morgan, Chris, Pat, Lee";
+        } else {
+          bulkLabel.innerText = "Enter team names/pairs (Comma or line separated, use '&' or 'vs'):";
+          bulkArea.placeholder = "e.g. Alex & Jordan, Taylor & Sam, Morgan & Chris, Pat & Lee";
+        }
+      }
+    }
+
     function updateLockUI() {
       tournamentStarted = isTournamentInProgress();
       const badge = document.getElementById('tournamentLockBadge');
@@ -198,37 +258,55 @@
       const btnAddLate = document.getElementById('btnAddLate');
       const bulkLabel = document.getElementById('bulkNamesLabel');
       const bulkArea = document.getElementById('bulkNames');
+      const modeSingles = document.getElementById('modeSingles');
+      const modeDoubles = document.getElementById('modeDoubles');
+      const pairingAuto = document.getElementById('pairingAuto');
+      const pairingManual = document.getElementById('pairingManual');
+
+      // Lock mode inputs if started
+      modeSingles.disabled = tournamentStarted;
+      modeDoubles.disabled = tournamentStarted;
+      pairingAuto.disabled = tournamentStarted;
+      pairingManual.disabled = tournamentStarted;
 
       if (tournamentStarted) {
-        badge.innerHTML = `🔒 Tournament In Progress (Locked)`;
+        badge.innerHTML = `🔒 Tournament In Progress (${tournamentMode.toUpperCase()})`;
         badge.className = "text-xs bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-md font-semibold font-mono";
         
         btnGenerate.classList.add('hidden');
         btnAddLate.classList.remove('hidden');
         
-        bulkLabel.innerText = "Add Late Player(s) (Names entered here will be added without disrupting played matches):";
-        bulkArea.placeholder = "Enter name(s) of new player(s) joining late...";
+        if (tournamentMode === 'singles') {
+          bulkLabel.innerText = "Add Late Player(s) (Names entered here will be appended without disrupting played matches):";
+          bulkArea.placeholder = "Enter name(s) of new player(s) joining late...";
+        } else {
+          bulkLabel.innerText = "Add Late Team(s) (Pre-paired e.g. 'Player A & Player B'):";
+          bulkArea.placeholder = "Enter team name(s) joining late...";
+        }
       } else {
         badge.innerHTML = `Status: Ready to Start`;
         badge.className = "text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md font-mono";
         
         btnGenerate.classList.remove('hidden');
         btnAddLate.classList.add('hidden');
-        
-        bulkLabel.innerText = "Enter player names (Comma or line separated):";
-        bulkArea.placeholder = "e.g. Alex, Jordan, Taylor, Sam, Morgan";
+        handleModeChange();
+      }
+
+      // Update table header labels
+      const thName = document.getElementById('thParticipantName');
+      if (thName) {
+        thName.innerText = tournamentMode === 'doubles' ? "Team Name" : "Player Name";
       }
     }
 
-    /**
-     * Saves tournament state to browser LocalStorage
-     */
     function saveToLocalStorage() {
       const state = {
-        playersList: playersList,
-        matches: matches,
-        roundCollapseState: roundCollapseState,
-        tournamentStarted: tournamentStarted,
+        tournamentMode,
+        doublesPairing,
+        participants,
+        matches,
+        roundCollapseState,
+        tournamentStarted,
         bulkInputText: document.getElementById('bulkNames').value,
         updatedAt: new Date().toISOString()
       };
@@ -236,18 +314,30 @@
       showToast("State saved to Browser LocalStorage.");
     }
 
-    /**
-     * Loads tournament state from browser LocalStorage
-     */
     function loadFromLocalStorage() {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         try {
           const state = JSON.parse(stored);
-          playersList = state.playersList || [];
+          tournamentMode = state.tournamentMode || "singles";
+          doublesPairing = state.doublesPairing || "auto";
+          participants = state.participants || [];
           matches = state.matches || [];
           roundCollapseState = state.roundCollapseState || {};
           tournamentStarted = state.tournamentStarted || false;
+
+          // Set radio buttons
+          if (tournamentMode === 'doubles') {
+            document.getElementById('modeDoubles').checked = true;
+          } else {
+            document.getElementById('modeSingles').checked = true;
+          }
+
+          if (doublesPairing === 'manual') {
+            document.getElementById('pairingManual').checked = true;
+          } else {
+            document.getElementById('pairingAuto').checked = true;
+          }
           
           if (state.bulkInputText && !isTournamentInProgress()) {
             document.getElementById('bulkNames').value = state.bulkInputText;
@@ -257,17 +347,16 @@
           renderSummaryTable();
           updateLockUI();
           showToast("Loaded saved tournament data.");
+          return;
         } catch (e) {
           console.error("Failed to parse local storage data", e);
         }
       }
+      updateLockUI();
     }
 
-    /**
-     * Berger Circle Algorithm to build round-by-round fixtures
-     */
-    function buildRoundRobinSchedule(players) {
-      let pool = [...players];
+    function buildRoundRobinSchedule(teamsOrPlayers) {
+      let pool = [...teamsOrPlayers];
       if (pool.length % 2 !== 0) {
         pool.push("BYE");
       }
@@ -308,27 +397,52 @@
       return scheduledMatches;
     }
 
-    /**
-     * Initial Tournament Generation with mandatory Random Shuffling
-     */
     function generateInitialTournament() {
       if (isTournamentInProgress()) {
-        alert("Tournament is already in progress and locked! You cannot re-shuffle. Use 'Add Late Player(s)' instead.");
+        alert("Tournament is already in progress and locked! Use 'Add Late Entry' instead.");
         return;
       }
 
+      tournamentMode = document.querySelector('input[name="tournamentMode"]:checked').value;
       const text = document.getElementById('bulkNames').value;
-      let rawNames = text.split(/[\n,]+/).map(n => n.trim()).filter(n => n.length > 0);
-      let uniqueNames = [...new Set(rawNames)];
+      let rawItems = text.split(/[\n,]+/).map(n => n.trim()).filter(n => n.length > 0);
+      let uniqueItems = [...new Set(rawItems)];
 
-      if (uniqueNames.length < 2) {
-        alert("Please enter at least 2 unique player names to start the tournament.");
+      if (uniqueItems.length < 2) {
+        alert("Please enter at least 2 entries to start.");
         return;
       }
 
-      // Shuffles player list randomly (Fisher-Yates)
-      playersList = shuffleArray(uniqueNames);
-      matches = buildRoundRobinSchedule(playersList);
+      let finalParticipants = [];
+
+      if (tournamentMode === 'singles') {
+        finalParticipants = shuffleArray(uniqueItems);
+      } else {
+        // Doubles Mode
+        doublesPairing = document.querySelector('input[name="doublesPairing"]:checked').value;
+        if (doublesPairing === 'auto') {
+          if (uniqueItems.length < 4) {
+            alert("For Doubles auto-pairing, please enter at least 4 individual player names.");
+            return;
+          }
+          const shuffledPlayers = shuffleArray(uniqueItems);
+          // Pair up two players into teams
+          for (let i = 0; i < shuffledPlayers.length; i += 2) {
+            if (i + 1 < shuffledPlayers.length) {
+              finalParticipants.push(`Team ${Math.floor(i/2) + 1} (${shuffledPlayers[i]} & ${shuffledPlayers[i+1]})`);
+            } else {
+              // Odd player left out or unpaired
+              finalParticipants.push(`Team ${Math.floor(i/2) + 1} (${shuffledPlayers[i]} & Solo Player)`);
+            }
+          }
+        } else {
+          // Manual pre-paired teams
+          finalParticipants = shuffleArray(uniqueItems);
+        }
+      }
+
+      participants = finalParticipants;
+      matches = buildRoundRobinSchedule(participants);
       roundCollapseState = {};
 
       saveToLocalStorage();
@@ -336,49 +450,44 @@
       renderSummaryTable();
       updateLockUI();
       
-      showToast(`Shuffled ${playersList.length} players randomly and generated ${matches.length} matches!`);
+      showToast(`Generated ${tournamentMode.toUpperCase()} tournament with ${participants.length} ${tournamentMode === 'doubles' ? 'Teams' : 'Players'} & ${matches.length} matches!`);
     }
 
-    /**
-     * Mid-Tournament Addition: Appends late players without reshuffling existing player order or un-locking played matches
-     */
-    function addLatePlayers() {
+    function addLateEntries() {
       const text = document.getElementById('bulkNames').value;
-      let newNames = text.split(/[\n,]+/).map(n => n.trim()).filter(n => n.length > 0);
+      let newItems = text.split(/[\n,]+/).map(n => n.trim()).filter(n => n.length > 0);
       
-      // Filter out existing players
-      let playersToAdd = newNames.filter(n => !playersList.includes(n));
-      playersToAdd = [...new Set(playersToAdd)];
+      let itemsToAdd = newItems.filter(n => !participants.includes(n));
+      itemsToAdd = [...new Set(itemsToAdd)];
 
-      if (playersToAdd.length === 0) {
-        alert("No new unique player names were found in the text box.");
+      if (itemsToAdd.length === 0) {
+        alert("No new unique names were found in the text box.");
         return;
       }
 
-      if (!confirm(`Add ${playersToAdd.length} new player(s) (${playersToAdd.join(', ')}) to the active tournament?\n\nThis will keep all played matches untouched and append necessary new fixtures.`)) {
+      if (!confirm(`Add ${itemsToAdd.length} new entry/entries (${itemsToAdd.join(', ')}) to active tournament?\n\nPlayed matches will remain locked.`)) {
         return;
       }
 
-      const combinedPlayers = [...playersList, ...playersToAdd];
-      const fullNewSchedule = buildRoundRobinSchedule(combinedPlayers);
+      const combinedParticipants = [...participants, ...itemsToAdd];
+      const fullNewSchedule = buildRoundRobinSchedule(combinedParticipants);
 
-      // Preserve completed match results
+      // Preserve existing match results
       const existingMatchesMap = {};
       matches.forEach(m => {
         const key = [m.player1, m.player2].sort().join(" vs ");
         existingMatchesMap[key] = m;
       });
 
-      // Merge new schedule with existing match states
       let updatedMatches = fullNewSchedule.map(nm => {
         const key = [nm.player1, nm.player2].sort().join(" vs ");
         if (existingMatchesMap[key]) {
-          return existingMatchesMap[key]; // Preserve locked status & winner
+          return existingMatchesMap[key];
         }
         return nm;
       });
 
-      playersList = combinedPlayers;
+      participants = combinedParticipants;
       matches = updatedMatches;
       document.getElementById('bulkNames').value = '';
 
@@ -387,13 +496,13 @@
       renderSummaryTable();
       updateLockUI();
 
-      showToast(`Added ${playersToAdd.length} new player(s) seamlessly! Total players: ${playersList.length}`);
+      showToast(`Added ${itemsToAdd.length} new late entries!`);
     }
 
-    function calculatePlayerStats() {
+    function calculateStats() {
       const stats = {};
 
-      playersList.forEach(p => {
+      participants.forEach(p => {
         stats[p] = {
           name: p,
           totalScheduled: 0,
@@ -450,12 +559,11 @@
       if (matches.length === 0) {
         container.innerHTML = `
           <div class="text-center py-8 text-slate-500 text-xs">
-            No matches generated yet. Enter player names above and click "Shuffle & Start New Tournament".
+            No matches generated yet. Enter player/team names above and click "Shuffle & Start New Tournament".
           </div>`;
         return;
       }
 
-      // Group matches by round
       const roundsMap = {};
       matches.forEach(m => {
         if (!roundsMap[m.round]) roundsMap[m.round] = [];
@@ -473,7 +581,6 @@
         const roundCard = document.createElement('div');
         roundCard.className = "bg-slate-900 border border-slate-700/80 rounded-xl overflow-hidden transition shadow-sm";
 
-        // Accordion Header
         const roundHeader = document.createElement('div');
         roundHeader.className = "p-3 px-4 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between cursor-pointer select-none hover:bg-slate-700/50 transition";
         roundHeader.onclick = () => toggleRoundCollapse(roundNum);
@@ -503,7 +610,6 @@
 
         roundCard.appendChild(roundHeader);
 
-        // Accordion Content Table
         if (!isCollapsed) {
           const tableContainer = document.createElement('div');
           tableContainer.className = "overflow-x-auto";
@@ -513,9 +619,9 @@
               <thead class="bg-slate-950/60 text-[11px] text-slate-400 uppercase border-b border-slate-800">
                 <tr>
                   <th class="py-2.5 px-4 w-16">Match #</th>
-                  <th class="py-2.5 px-4">Player 1</th>
-                  <th class="py-2.5 px-4">Player 2</th>
-                  <th class="py-2.5 px-4 w-52">Winner Selection</th>
+                  <th class="py-2.5 px-4">${tournamentMode === 'doubles' ? 'Team 1' : 'Player 1'}</th>
+                  <th class="py-2.5 px-4">${tournamentMode === 'doubles' ? 'Team 2' : 'Player 2'}</th>
+                  <th class="py-2.5 px-4 w-60">Winner Selection</th>
                   <th class="py-2.5 px-4 w-28">Status</th>
                   <th class="py-2.5 px-4 w-28 text-right">Action</th>
                 </tr>
@@ -528,8 +634,8 @@
             tableHtml += `
               <tr class="${isLocked ? 'bg-slate-950/30 text-slate-400' : 'hover:bg-slate-800/40 transition'}">
                 <td class="py-3 px-4 font-mono text-emerald-400 text-xs">#${m.id}</td>
-                <td class="py-3 px-4 font-medium">${m.player1}</td>
-                <td class="py-3 px-4 font-medium">${m.player2}</td>
+                <td class="py-3 px-4 font-medium text-slate-200">${m.player1}</td>
+                <td class="py-3 px-4 font-medium text-slate-200">${m.player2}</td>
                 <td class="py-3 px-4">
                   ${isLocked ? `
                     <span class="font-bold ${m.winner === m.player1 ? 'text-emerald-400' : 'text-slate-300'} flex items-center gap-1">
@@ -586,7 +692,7 @@
         return;
       }
 
-      if (confirm(`Confirm ${chosenWinner} as winner for Match #${matchId} (Round ${match.round})?\n\nThis will lock the match and automatically download a full cumulative JSON snapshot file.`)) {
+      if (confirm(`Confirm "${chosenWinner}" as winner for Match #${matchId} (Round ${match.round})?\n\nThis will lock the match and auto-download a cumulative JSON backup.`)) {
         match.winner = chosenWinner;
         match.submitted = true;
         match.timestamp = new Date().toISOString();
@@ -596,30 +702,28 @@
         renderSummaryTable();
         updateLockUI();
 
-        // Download cumulative state JSON file
         downloadCumulativeJSONBackup(match);
       }
     }
 
-    /**
-     * Download full snapshot JSON file on match submission
-     */
     function downloadCumulativeJSONBackup(lastActionMatch) {
       const fullSnapshot = {
         app: "Table Tennis Round-Robin Tournament Manager",
-        version: "4.0",
+        version: "5.0",
+        mode: tournamentMode,
+        doublesPairing: doublesPairing,
         lastUpdated: new Date().toISOString(),
         lastAction: lastActionMatch ? `Submitted Match #${lastActionMatch.id} (Round ${lastActionMatch.round})` : "Manual Export",
-        players: playersList,
+        participants: participants,
         tournamentStarted: tournamentStarted,
-        standings: calculatePlayerStats(),
+        standings: calculateStats(),
         roundCollapseState: roundCollapseState,
         matches: matches
       };
 
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(fullSnapshot, null, 2));
       const downloadAnchor = document.createElement('a');
-      const filename = `TT_Tournament_Snapshot_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      const filename = `TT_${tournamentMode.toUpperCase()}_Snapshot_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
       
       downloadAnchor.setAttribute("href", dataStr);
       downloadAnchor.setAttribute("download", filename);
@@ -630,9 +734,6 @@
       showToast(`Saved snapshot JSON file: ${filename}`);
     }
 
-    /**
-     * Import JSON backup file
-     */
     function importJSONBackup(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -641,13 +742,15 @@
       reader.onload = function(e) {
         try {
           const data = JSON.parse(e.target.result);
-          if (!data.players || !data.matches) {
+          if (!data.participants && !data.players) {
             alert("Invalid tournament backup file format!");
             return;
           }
 
-          if (confirm(`Restore tournament with ${data.players.length} players and ${data.matches.length} matches?\n\nThis will replace current in-memory tournament data.`)) {
-            playersList = data.players || [];
+          if (confirm(`Restore tournament with ${data.participants ? data.participants.length : data.players.length} participants and ${data.matches.length} matches?\n\nThis will replace current tournament state.`)) {
+            tournamentMode = data.mode || "singles";
+            doublesPairing = data.doublesPairing || "auto";
+            participants = data.participants || data.players || [];
             matches = data.matches || [];
             roundCollapseState = data.roundCollapseState || {};
             tournamentStarted = data.tournamentStarted || isTournamentInProgress();
@@ -668,18 +771,18 @@
 
     function renderSummaryTable() {
       const summaryBody = document.getElementById('summaryBody');
-      const counter = document.getElementById('playerCounter');
-      counter.innerText = `${playersList.length} Players`;
+      const counter = document.getElementById('participantCounter');
+      counter.innerText = `${participants.length} ${tournamentMode === 'doubles' ? 'Teams' : 'Players'}`;
 
-      if (playersList.length === 0) {
-        summaryBody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-500 text-xs">No player statistics available yet. Enter player names above.</td></tr>`;
+      if (participants.length === 0) {
+        summaryBody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-500 text-xs">No statistics available yet. Enter names above.</td></tr>`;
         return;
       }
 
-      const playerStats = calculatePlayerStats();
+      const stats = calculateStats();
       summaryBody.innerHTML = '';
 
-      playerStats.forEach((p, index) => {
+      stats.forEach((p, index) => {
         const winRate = p.played > 0 ? ((p.wins / p.played) * 100).toFixed(1) : "0.0";
         const row = document.createElement('tr');
         row.className = "hover:bg-slate-700/30 transition";
@@ -701,11 +804,10 @@
       });
     }
 
-    // Reset tournament memory
     function clearAllData() {
       if (confirm("Are you sure you want to delete all tournament data and clear local browser memory?")) {
         localStorage.removeItem(STORAGE_KEY);
-        playersList = [];
+        participants = [];
         matches = [];
         roundCollapseState = {};
         tournamentStarted = false;
@@ -718,16 +820,15 @@
       }
     }
 
-    // Export to Excel (.xlsx)
     function exportToExcel() {
       if (matches.length === 0) {
         alert("No match data available to export!");
         return;
       }
 
-      const playerStats = calculatePlayerStats().map((p, idx) => ({
+      const stats = calculateStats().map((p, idx) => ({
         "Rank": idx + 1,
-        "Player Name": p.name,
+        "Participant / Team Name": p.name,
         "Total Scheduled Matches": p.totalScheduled,
         "Matches Played": p.played,
         "Wins": p.wins,
@@ -738,8 +839,8 @@
       const exportMatches = matches.map(m => ({
         "Round": m.round,
         "Match Number": m.id,
-        "Player 1": m.player1,
-        "Player 2": m.player2,
+        "Side 1": m.player1,
+        "Side 2": m.player2,
         "Declared Winner": m.winner || "Pending",
         "Status": m.submitted ? "Submitted & Locked" : "Pending Selection",
         "Timestamp": m.timestamp || "N/A"
@@ -747,31 +848,30 @@
 
       const workbook = XLSX.utils.book_new();
 
-      const summarySheet = XLSX.utils.json_to_sheet(playerStats);
-      XLSX.utils.book_append_sheet(workbook, summarySheet, "Player Standings");
+      const summarySheet = XLSX.utils.json_to_sheet(stats);
+      XLSX.utils.book_append_sheet(workbook, summarySheet, "Standings");
 
       const matchSheet = XLSX.utils.json_to_sheet(exportMatches);
-      XLSX.utils.book_append_sheet(workbook, matchSheet, "Round-by-Round Matches");
+      XLSX.utils.book_append_sheet(workbook, matchSheet, "Matches");
 
-      XLSX.writeFile(workbook, `TT_Tournament_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
+      XLSX.writeFile(workbook, `TT_${tournamentMode.toUpperCase()}_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
-    // Export to CSV
     function exportToCSV() {
       if (matches.length === 0) {
         alert("No match data available to export!");
         return;
       }
 
-      let csvContent = "data:text/csv;charset=utf-8,--- PLAYER STANDINGS ---\nRank,Player Name,Total Scheduled,Matches Played,Wins,Losses,Win Rate (%)\n";
+      let csvContent = `data:text/csv;charset=utf-8,--- TOURNAMENT MODE: ${tournamentMode.toUpperCase()} ---\nRank,Participant/Team Name,Total Scheduled,Matches Played,Wins,Losses,Win Rate (%)\n`;
 
-      const playerStats = calculatePlayerStats();
-      playerStats.forEach((p, idx) => {
+      const stats = calculateStats();
+      stats.forEach((p, idx) => {
         const winRate = p.played > 0 ? ((p.wins / p.played) * 100).toFixed(1) : "0.0";
         csvContent += `${idx + 1},"${p.name}",${p.totalScheduled},${p.played},${p.wins},${p.losses},${winRate}%\n`;
       });
 
-      csvContent += "\n--- MATCH RESULTS ---\nRound,Match Number,Player 1,Player 2,Declared Winner,Status,Timestamp\n";
+      csvContent += "\n--- MATCH RESULTS ---\nRound,Match Number,Side 1,Side 2,Declared Winner,Status,Timestamp\n";
       matches.forEach(m => {
         const row = [
           m.round,
@@ -788,7 +888,7 @@
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
       link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `TT_Tournament_Export_${new Date().toISOString().slice(0,10)}.csv`);
+      link.setAttribute("download", `TT_${tournamentMode.toUpperCase()}_Export_${new Date().toISOString().slice(0,10)}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
