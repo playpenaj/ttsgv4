@@ -727,7 +727,7 @@ async function renderPlay(){
     if(!res){
       action = `<button class="btn" onclick="openScoreEntry('${c.id}')">Enter winner</button>`;
     } else if(!res.acknowledged && res.entered_by!==me.id){
-      action = `<button class="btn" onclick="ackScore(this,'${res.id}')">Accept result</button> <span class="muted">(winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)})</span>`;
+      action = `<button class="btn" onclick="ackScore(this,'${res.id}')">Accept result</button> <button class="btn ghost" style="color:var(--warn)" onclick="rejectResult(this,'${res.id}')">Reject</button> <span class="muted">(winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)})</span>`;
     } else if(!res.acknowledged){
       action = `<span class="badge muted">Waiting for opponent to accept</span>`;
     } else {
@@ -914,6 +914,14 @@ window.ackScore = async (btn,resultId)=>{
   if(error){ alert('Could not record this result: '+error.message); return; }
   renderPlay();
 };
+window.rejectResult = async (btn,resultId)=>{
+  if(!confirm("Reject this result? It will be removed so either player can submit the correct winner.")) return;
+  setLoading(btn,true,'Rejecting...');
+  const {error} = await sb.rpc('reject_match_result', {p_result_id: resultId});
+  setLoading(btn,false);
+  if(error){ alert('Could not reject this result: '+error.message); return; }
+  renderPlay();
+};
 
 function ratingTier(r){
   if(r>=1300) return {name:'Gold', pct:15};
@@ -986,7 +994,11 @@ async function renderAdmin(){
   const matchRowsAdmin = (allChallenges||[]).map(c=>{
     const res = chResults.find(r=>r.challenge_id===c.id);
     const winnerName = res ? (res.winner_side==='challenger'? nameById(c.challenger_id) : nameById(c.opponent_id)) : '-';
-    const resultText = !res ? '<span class="badge muted">No result yet</span>' : (res.acknowledged ? `<span class="badge ok">Recorded — ${winnerName}</span>` : '<span class="badge warn">Pending acceptance</span>');
+    const pendingOver48h = res && !res.acknowledged && (new Date(res.created_at) < new Date(Date.now()-48*3600*1000));
+    const resultText = !res ? '<span class="badge muted">No result yet</span>'
+      : (res.acknowledged ? `<span class="badge ok">Recorded — ${winnerName}</span>`
+        : (pendingOver48h ? '<span class="badge warn">Pending 48h+</span>' : '<span class="badge warn">Pending acceptance</span>'));
+    const approveBtn = pendingOver48h ? `<button class="btn" onclick="adminApproveResult(this,'${res.id}')">Approve (48h+)</button>` : '';
     return `<tr>
       <td>${fmtDateTime(c.created_at)}</td>
       <td>${nameById(c.challenger_id)}${c.challenger_partner_id? ' &amp; '+nameById(c.challenger_partner_id):''}</td>
@@ -994,7 +1006,7 @@ async function renderAdmin(){
       <td>${c.match_type}</td>
       <td>${c.status}</td>
       <td>${resultText}</td>
-      <td><button class="btn ghost" style="color:var(--warn)" onclick="deleteMatch(this,'${c.id}')">Delete</button></td>
+      <td>${approveBtn}<button class="btn ghost" style="color:var(--warn)" onclick="deleteMatch(this,'${c.id}')">Delete</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="7" class="muted">No matches yet.</td></tr>';
   app.innerHTML = `
@@ -1024,6 +1036,27 @@ async function renderAdmin(){
     <label>Search (name, community, email or age)</label>
     <input id="playerSearch" placeholder="Start typing to filter...">
     <div id="playersList" style="margin-top:10px"></div>
+  </div>
+  <div class="card"><h2>Manually enter a match result</h2>
+    <p class="muted">For recording a match directly — historical results, or games played outside the app. This applies rating points immediately; no opponent acceptance needed. The same 24-hour same-matchup cooldown still applies.</p>
+    <label>Match type</label>
+    <select id="am_type"><option value="singles">Singles</option><option value="doubles">Doubles</option></select>
+    <div class="row">
+      <div><label>Side A player</label><select id="am_a">${(all||[]).filter(p=>p.is_approved).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div id="am_a_partner_box" class="hidden"><label>Side A partner</label><select id="am_a_partner">${(all||[]).filter(p=>p.is_approved).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+    </div>
+    <div class="row">
+      <div><label>Side B player</label><select id="am_b">${(all||[]).filter(p=>p.is_approved).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div id="am_b_partner_box" class="hidden"><label>Side B partner</label><select id="am_b_partner">${(all||[]).filter(p=>p.is_approved).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+    </div>
+    <label>Winner</label>
+    <select id="am_winner"><option value="challenger">Side A</option><option value="opponent">Side B</option></select>
+    <label>Date played</label>
+    <input type="datetime-local" id="am_when">
+    <label>Venue (optional)</label>
+    <input id="am_venue" placeholder="Venue">
+    <button class="btn" id="am_submit" style="margin-top:12px">Record match</button>
+    <div class="error" id="am_err"></div>
   </div>
   <div class="card"><h2>Manage matches</h2>
     <p class="muted">Deleting a match removes its challenge and any result record. It does <b>not</b> automatically reverse rating points that were already applied when the result was accepted.</p>
@@ -1124,6 +1157,41 @@ async function renderAdmin(){
     const {error} = await sb.from('sttl_communities').insert({name});
     if(error){ setLoading(btn,false); err.textContent = error.message; } else renderAdmin();
   };
+  document.getElementById('am_type').onchange = e=>{
+    const isDoubles = e.target.value==='doubles';
+    document.getElementById('am_a_partner_box').classList.toggle('hidden', !isDoubles);
+    document.getElementById('am_b_partner_box').classList.toggle('hidden', !isDoubles);
+  };
+  document.getElementById('am_submit').onclick = async (e)=>{
+    const btn=e.currentTarget;
+    const err=document.getElementById('am_err');
+    const match_type=document.getElementById('am_type').value;
+    const isDoubles = match_type==='doubles';
+    const pA=document.getElementById('am_a').value;
+    const pB=document.getElementById('am_b').value;
+    const pAPartner = isDoubles ? document.getElementById('am_a_partner').value : null;
+    const pBPartner = isDoubles ? document.getElementById('am_b_partner').value : null;
+    const winner=document.getElementById('am_winner').value;
+    const whenVal=document.getElementById('am_when').value;
+    const venue=document.getElementById('am_venue').value.trim()||null;
+    err.textContent='';
+    if(pA===pB){ err.textContent='Side A and Side B must be different players.'; return; }
+    if(isDoubles && (pAPartner===pA || pBPartner===pB || pAPartner===pB || pBPartner===pA || pAPartner===pBPartner)){
+      err.textContent='Each of the four players in a doubles match must be different.'; return;
+    }
+    setLoading(btn,true,'Recording...');
+    const {error} = await sb.rpc('admin_record_match', {
+      p_challenger: pA, p_challenger_partner: pAPartner, p_opponent: pB, p_opponent_partner: pBPartner,
+      p_match_type: match_type, p_winner_side: winner, p_venue: venue,
+      p_scheduled_at: whenVal ? new Date(whenVal).toISOString() : new Date().toISOString()
+    });
+    setLoading(btn,false);
+    if(error){
+      alert('Could not record match: '+error.message);
+      return;
+    }
+    renderAdmin();
+  };
 }
 window.approveUser = async (btn,id)=>{ setLoading(btn,true,'Approving...'); await sb.from('sttl_players').update({is_approved:true}).eq('id',id); renderAdmin(); };
 window.toggleSubscription = async (checkbox,id)=>{
@@ -1132,6 +1200,14 @@ window.toggleSubscription = async (checkbox,id)=>{
   const {error} = await sb.from('sttl_players').update({is_subscribed:newVal}).eq('id',id);
   checkbox.disabled = false;
   if(error){ alert('Could not update subscription: '+error.message); checkbox.checked = !newVal; }
+};
+window.adminApproveResult = async (btn,resultId)=>{
+  if(!confirm("Force-approve this result on the opponent's behalf? This updates both players' ratings.")) return;
+  setLoading(btn,true,'Approving...');
+  const {error} = await sb.rpc('admin_force_acknowledge_result', {p_result_id: resultId});
+  setLoading(btn,false);
+  if(error){ alert('Could not approve: '+error.message); return; }
+  renderAdmin();
 };
 window.deleteMatch = async (btn,challengeId)=>{
   if(!confirm('Delete this match? This removes the challenge and any recorded result.\nIt will NOT reverse rating points already applied.')) return;
