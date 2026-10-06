@@ -147,7 +147,7 @@ async function callFn(payload, needsAuth){
   }
 }
 
-let session=null, me=null, activeTab='play', players=[], communities=[], sponsorVisible=true;
+let session=null, me=null, activeTab='play', players=[], communities=[], sponsorVisible=true, dashboardShowAll=false;
 function applySponsorVisibility(){
   const h=document.getElementById('headerSponsor'), f=document.getElementById('footerSponsor');
   if(h) h.style.display = sponsorVisible ? '' : 'none';
@@ -229,10 +229,11 @@ async function renderGuestDashboard(){
   const byRating = [...all].sort((a,b)=>b.rating-a.rating);
   const champion = byRating[0];
   const mostPlayed = [...all].sort((a,b)=>b.played-a.played)[0];
-  const singlesBoard = all.filter(p=>p.singlesWins+p.singlesLosses>0).sort((a,b)=>b.singlesWins-a.singlesWins || (b.singlesWins-b.singlesLosses)-(a.singlesWins-a.singlesLosses));
-  const doublesBoard = all.filter(p=>p.doublesWins+p.doublesLosses>0).sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
-  const guestBoardRows = (list, wKey, lKey) => list.slice(0,10).map((p,i)=>`
-    <tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No matches recorded yet.</td></tr>';
+  const singlesBoard = [...all].sort((a,b)=>b.singlesWins-a.singlesWins || (b.singlesWins-b.singlesLosses)-(a.singlesWins-a.singlesLosses));
+  const doublesBoard = [...all].sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
+  const limitFor = (list) => dashboardShowAll ? list.length : 15;
+  const guestBoardRows = (list, wKey, lKey) => list.slice(0,limitFor(list)).map((p,i)=>`
+    <tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p[wKey]+p[lKey]}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No players yet.</td></tr>';
 
   app.innerHTML = `
   <div class="card"><button class="btn ghost" id="guest_back">← Back to Login</button></div>
@@ -240,18 +241,27 @@ async function renderGuestDashboard(){
     <p>🏆 <b>Overall Champion (points):</b> ${champion? `${champion.name} — ${champion.rating} pts`:'-'}</p>
     <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${mostPlayed.name} — ${mostPlayed.played} matches`:'-'}</p>
   </div>
+  <div class="card">
+    <p class="muted" style="margin:0 0 8px">Showing ${dashboardShowAll? 'all '+all.length : 'top 15 of '+all.length} registered players.</p>
+    <div class="row">
+      <button class="btn ${dashboardShowAll?'ghost':''}" id="dash_top15">Top 15</button>
+      <button class="btn ${dashboardShowAll?'':'ghost'}" id="dash_showall">Show all (${all.length})</button>
+    </div>
+  </div>
   <div class="card"><h2>Overall leaderboard (by points)</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>W–L</th><th>Win %</th></tr>
-    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p.rating}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('')}
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>Played</th><th>W–L</th><th>Win %</th></tr>
+    ${byRating.slice(0,limitFor(byRating)).map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p.rating}</td><td>${p.played}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No players yet.</td></tr>'}
     </table></div>
   </div>
   <div class="card"><h2>Singles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${guestBoardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${guestBoardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
   </div>
   <div class="card"><h2>Doubles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${guestBoardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${guestBoardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
   </div>`;
   document.getElementById('guest_back').onclick = renderLogin;
+  document.getElementById('dash_top15').onclick = ()=>{ dashboardShowAll=false; renderGuestDashboard(); };
+  document.getElementById('dash_showall').onclick = ()=>{ dashboardShowAll=true; renderGuestDashboard(); };
 }
 
 async function renderSignup(){
@@ -616,20 +626,27 @@ async function renderMatchHistory(matchType){
 
 async function renderDashboard(){
   showLoading('Loading dashboard…');
+  // nameOf() (used below by renderMatchHistory) reads from the shared
+  // `players` cache, which is otherwise only populated by the Play tab.
+  // Dashboard is the default landing tab after login, so without this the
+  // cache is empty and every name falls back to a truncated id — exactly
+  // what showed up as "33a84b", "6510fb" etc. in the match history table.
+  await refreshPlayers();
   const all = await computeLeagueStats();
   const byRating = [...all].sort((a,b)=>b.rating-a.rating);
   const myRank = byRating.findIndex(p=>p.id===me.id)+1;
   const champion = byRating[0];
   const mostPlayed = [...all].sort((a,b)=>b.played-a.played)[0];
-  const singlesBoard = all.filter(p=>p.singlesWins+p.singlesLosses>0).sort((a,b)=>b.singlesWins-a.singlesWins || (b.singlesWins-b.singlesLosses)-(a.singlesWins-a.singlesLosses));
-  const doublesBoard = all.filter(p=>p.doublesWins+p.doublesLosses>0).sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
+  // Every approved player appears here, whether they've played or not —
+  // sorted by wins first, so anyone who's actually played rises above the
+  // 0-played entries naturally.
+  const singlesBoard = [...all].sort((a,b)=>b.singlesWins-a.singlesWins || (b.singlesWins-b.singlesLosses)-(a.singlesWins-a.singlesLosses));
+  const doublesBoard = [...all].sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
   const mine = all.find(p=>p.id===me.id) || {wins:0,losses:0,played:0,rating:me.rating,photo_url:me.photo_url};
 
-  const boardRows = (list, wKey, lKey) => list.slice(0,10).map((p,i)=>`
-    <tr><td>${i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${ratingLevel(p.rating)}</span></td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No matches recorded yet.</td></tr>';
-
-  const singlesHistory = await renderMatchHistory('singles');
-  const doublesHistory = await renderMatchHistory('doubles');
+  const limitFor = (list) => dashboardShowAll ? list.length : 15;
+  const boardRows = (list, wKey, lKey) => list.slice(0,limitFor(list)).map((p,i)=>`
+    <tr><td>${i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${ratingLevel(p.rating)}</span></td><td>${p[wKey]+p[lKey]}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No players yet.</td></tr>';
 
   app.innerHTML = `
   <div class="card"><h2>Your status</h2>
@@ -663,24 +680,27 @@ async function renderDashboard(){
     <tr><td>2700+</td><td>Pro</td><td>Top of the sport — world-class play.</td></tr>
     </table></div>
   </div>
+  <div class="card">
+    <p class="muted" style="margin:0 0 8px">Showing ${dashboardShowAll? 'all '+all.length : 'top 15 of '+all.length} registered players.</p>
+    <div class="row">
+      <button class="btn ${dashboardShowAll?'ghost':''}" id="dash_top15">Top 15</button>
+      <button class="btn ${dashboardShowAll?'':'ghost'}" id="dash_showall">Show all (${all.length})</button>
+    </div>
+  </div>
   <div class="card"><h2>Overall leaderboard (by points)</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>W–L</th><th>Win %</th></tr>
-    ${byRating.slice(0,10).map((p,i)=>`<tr><td>${i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${ratingLevel(p.rating)}</span></td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('')}
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Played</th><th>W–L</th><th>Win %</th></tr>
+    ${byRating.slice(0,limitFor(byRating)).map((p,i)=>`<tr><td>${i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${ratingLevel(p.rating)}</span></td><td>${p.played}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No players yet.</td></tr>'}
     </table></div>
   </div>
   <div class="card"><h2>Singles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
   </div>
   <div class="card"><h2>Doubles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
-  </div>
-  <div class="card"><h2>Singles match history</h2>
-    <div class="table-scroll"><table><tr><th>When</th><th>Player 1</th><th>Player 2</th><th>Winner</th><th>Points</th></tr>${singlesHistory}</table></div>
-  </div>
-  <div class="card"><h2>Doubles match history</h2>
-    <div class="table-scroll"><table><tr><th>When</th><th>Team 1</th><th>Team 2</th><th>Winner</th><th>Points</th></tr>${doublesHistory}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
   </div>`;
 
+  document.getElementById('dash_top15').onclick = ()=>{ dashboardShowAll=false; renderDashboard(); };
+  document.getElementById('dash_showall').onclick = ()=>{ dashboardShowAll=true; renderDashboard(); };
   document.getElementById('photo_submit').onclick = async (e)=>{
     const btn=e.currentTarget;
     const fileInput=document.getElementById('photo_file');
@@ -733,7 +753,13 @@ async function renderPlay(){
     } else {
       action = `<span class="badge ok">Points recorded — winner: ${res.winner_side==='challenger'?await nameOf(c.challenger_id):await nameOf(c.opponent_id)}</span>`;
     }
-    return `<tr><td>${await nameOf(c.challenger_id)}</td><td>${await nameOf(c.opponent_id)}</td><td>${c.match_type}</td><td>${when}</td><td>${venue}</td><td>${action}</td></tr>`;
+    let pointsCell = '<span class="muted">—</span>';
+    if(res && res.acknowledged && res.rating_delta){
+      const iAmChallengerSide = c.challenger_id===me.id || c.challenger_partner_id===me.id;
+      const iWon = (res.winner_side==='challenger') === iAmChallengerSide;
+      pointsCell = iWon ? `<span class="badge ok">+${res.rating_delta}</span>` : `<span class="badge warn">−${res.rating_delta}</span>`;
+    }
+    return `<tr><td>${await nameOf(c.challenger_id)}</td><td>${await nameOf(c.opponent_id)}</td><td>${c.match_type}</td><td>${when}</td><td>${venue}</td><td>${pointsCell}</td><td>${action}</td></tr>`;
   }));
 
   app.innerHTML = `
@@ -757,7 +783,7 @@ async function renderPlay(){
   </div>
   <div class="card"><h2>Your matches</h2>
     <p class="muted">Pick the winner — your opponent must accept it for the points to reflect.</p>
-    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>When</th><th>Venue</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=6 class="muted">No accepted matches yet.</td></tr>'}</table></div>
+    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>When</th><th>Venue</th><th>Points</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=7 class="muted">No accepted matches yet.</td></tr>'}</table></div>
   </div>
   <div class="card"><h2>Challenge someone</h2>
     <label>Match type</label>
@@ -815,9 +841,30 @@ async function renderPlay(){
     if(error){ setLoading(btn,false); document.getElementById('ch_err').textContent = error.message; }
     else { document.getElementById('ch_err').style.color='var(--ok)'; document.getElementById('ch_err').textContent='Challenge sent!'; renderPlay(); }
   };
+  function updateQrWinnerLabels(){
+    const isDoubles = document.getElementById('qr_type').value==='doubles';
+    const oppSel = document.getElementById('qr_opp');
+    const oppName = (oppSel.options[oppSel.selectedIndex]?.text || 'Opponent').split(' (')[0];
+    let myLabel = esc(me.name);
+    let oppLabel = oppName;
+    if(isDoubles){
+      const myPartnerSel = document.getElementById('qr_myPartner');
+      const oppPartnerSel = document.getElementById('qr_oppPartner');
+      if(myPartnerSel?.options[myPartnerSel.selectedIndex]) myLabel += ' &amp; ' + myPartnerSel.options[myPartnerSel.selectedIndex].text;
+      if(oppPartnerSel?.options[oppPartnerSel.selectedIndex]) oppLabel += ' &amp; ' + oppPartnerSel.options[oppPartnerSel.selectedIndex].text;
+    }
+    const winnerSel = document.getElementById('qr_winner');
+    winnerSel.options[0].text = myLabel;
+    winnerSel.options[1].text = oppLabel;
+  }
   document.getElementById('qr_type').onchange = e=>{
     document.getElementById('qr_partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
+    updateQrWinnerLabels();
   };
+  document.getElementById('qr_opp').onchange = updateQrWinnerLabels;
+  document.getElementById('qr_myPartner').onchange = updateQrWinnerLabels;
+  document.getElementById('qr_oppPartner').onchange = updateQrWinnerLabels;
+  updateQrWinnerLabels();
   wireVenuePicker('qr_venue');
   document.getElementById('qr_submit').onclick = async (e)=>{
     const btn=e.currentTarget;
@@ -883,11 +930,19 @@ window.respondChallenge = async (btn,id,status)=>{
   renderPlay();
 };
 
-window.openScoreEntry = (challengeId)=>{
+window.openScoreEntry = async (challengeId)=>{
+  const {data:c} = await sb.from('sttl_challenges').select('*').eq('id',challengeId).single();
+  const iAmChallenger = c.challenger_id === me.id;
+  const myName = iAmChallenger ? await nameOf(c.challenger_id) : await nameOf(c.opponent_id);
+  const oppName = iAmChallenger ? await nameOf(c.opponent_id) : await nameOf(c.challenger_id);
+  const myPartner = c.match_type==='doubles' ? (iAmChallenger ? await nameOf(c.challenger_partner_id) : await nameOf(c.opponent_partner_id)) : null;
+  const oppPartner = c.match_type==='doubles' ? (iAmChallenger ? await nameOf(c.opponent_partner_id) : await nameOf(c.challenger_partner_id)) : null;
+  const myLabel = myPartner ? `${myName} &amp; ${myPartner}` : myName;
+  const oppLabel = oppPartner ? `${oppName} &amp; ${oppPartner}` : oppName;
   modal(`<h2>Enter winner</h2>
     <p class="muted">Just pick who won — your opponent will need to accept this before it counts.</p>
     <label>Winner</label>
-    <select id="win_pick"><option value="me">Me</option><option value="opp">Opponent</option></select>
+    <select id="win_pick"><option value="me">${myLabel}</option><option value="opp">${oppLabel}</option></select>
     <div class="row" style="margin-top:12px"><button class="btn" onclick="submitScore(this,'${challengeId}')">Submit</button><button class="btn ghost" onclick="closeModal()">Cancel</button></div>
     <div class="error" id="sc_err"></div>`);
 };
@@ -982,10 +1037,17 @@ async function renderAdminGate(){
 
 async function renderAdmin(){
   showLoading('Loading admin tools…');
+  // renderMatchHistory() below uses nameOf(), which reads the shared
+  // `players` cache — otherwise only populated by the Play tab. Without
+  // this, names in the match history tables here would fall back to
+  // truncated ids (the same bug fixed on the Dashboard).
+  await refreshPlayers();
   const {data:all} = await sb.from('sttl_players').select('*').order('created_at',{ascending:false});
   const {data:cfg} = await sb.from('sttl_app_config').select('*').eq('id',1).single();
   const {data:ccs} = await sb.from('sttl_communities').select('*').order('name');
   const notes = await sb.from('sttl_inactivity_notes').select('*, sttl_players!inner(name)').order('created_at',{ascending:false});
+  const singlesHistory = await renderMatchHistory('singles');
+  const doublesHistory = await renderMatchHistory('doubles');
   const {data:allChallenges} = await sb.from('sttl_challenges').select('*').order('created_at',{ascending:false}).limit(40);
   const chIds = (allChallenges||[]).map(c=>c.id);
   let chResults = [];
@@ -1061,6 +1123,12 @@ async function renderAdmin(){
   <div class="card"><h2>Manage matches</h2>
     <p class="muted">Deleting a match removes its challenge and any result record. It does <b>not</b> automatically reverse rating points that were already applied when the result was accepted.</p>
     <div class="table-scroll"><table><tr><th>Created</th><th>Side A</th><th>Side B</th><th>Type</th><th>Status</th><th>Result</th><th>Actions</th></tr>${matchRowsAdmin}</table></div>
+  </div>
+  <div class="card"><h2>Singles match history</h2>
+    <div class="table-scroll"><table><tr><th>When</th><th>Player 1</th><th>Player 2</th><th>Winner</th><th>Points</th></tr>${singlesHistory}</table></div>
+  </div>
+  <div class="card"><h2>Doubles match history</h2>
+    <div class="table-scroll"><table><tr><th>When</th><th>Team 1</th><th>Team 2</th><th>Winner</th><th>Points</th></tr>${doublesHistory}</table></div>
   </div>
   <div class="card"><h2>Community centers</h2>
     <div class="row">${(ccs||[]).map(c=>`<span class="tag">${c.name} <a onclick="removeCC('${c.id}','${c.name.replace(/'/g,"\\'")}')" style="cursor:pointer">✕</a></span>`).join(' ')}</div>
@@ -1157,11 +1225,31 @@ async function renderAdmin(){
     const {error} = await sb.from('sttl_communities').insert({name});
     if(error){ setLoading(btn,false); err.textContent = error.message; } else renderAdmin();
   };
+  function updateAmWinnerLabels(){
+    const isDoubles = document.getElementById('am_type').value==='doubles';
+    const aSel = document.getElementById('am_a'), bSel = document.getElementById('am_b');
+    let aLabel = aSel.options[aSel.selectedIndex]?.text || 'Side A';
+    let bLabel = bSel.options[bSel.selectedIndex]?.text || 'Side B';
+    if(isDoubles){
+      const aP = document.getElementById('am_a_partner'), bP = document.getElementById('am_b_partner');
+      if(aP?.options[aP.selectedIndex]) aLabel += ' &amp; ' + aP.options[aP.selectedIndex].text;
+      if(bP?.options[bP.selectedIndex]) bLabel += ' &amp; ' + bP.options[bP.selectedIndex].text;
+    }
+    const winnerSel = document.getElementById('am_winner');
+    winnerSel.options[0].text = aLabel;
+    winnerSel.options[1].text = bLabel;
+  }
   document.getElementById('am_type').onchange = e=>{
     const isDoubles = e.target.value==='doubles';
     document.getElementById('am_a_partner_box').classList.toggle('hidden', !isDoubles);
     document.getElementById('am_b_partner_box').classList.toggle('hidden', !isDoubles);
+    updateAmWinnerLabels();
   };
+  document.getElementById('am_a').onchange = updateAmWinnerLabels;
+  document.getElementById('am_b').onchange = updateAmWinnerLabels;
+  document.getElementById('am_a_partner').onchange = updateAmWinnerLabels;
+  document.getElementById('am_b_partner').onchange = updateAmWinnerLabels;
+  updateAmWinnerLabels();
   document.getElementById('am_submit').onclick = async (e)=>{
     const btn=e.currentTarget;
     const err=document.getElementById('am_err');
