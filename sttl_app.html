@@ -49,6 +49,10 @@ button.btn.ghost{background:#fff;color:var(--navy);border:1px solid var(--navy)}
 button.btn.ghost:hover{background:var(--navy);color:#fff}
 button.btn:disabled{opacity:.5;cursor:not-allowed}
 button.btn:disabled:hover{background:var(--accent)}
+a.btn{display:inline-block;background:#25D366;color:#fff;border:none;padding:12px 16px;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px;min-height:44px;line-height:20px;transition:background .15s}
+a.btn:hover{background:#1ebe5a}
+.help-fab{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#25D366;color:#fff;font-size:18px;text-decoration:none;box-shadow:0 1px 4px rgba(0,0,0,.3);transition:background .15s,transform .1s}
+.help-fab:hover{background:#1ebe5a;transform:scale(1.08)}
 .row{display:flex;gap:10px;flex-wrap:wrap}
 .row>*{flex:1;min-width:160px}
 .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600}
@@ -57,9 +61,16 @@ button.btn:disabled:hover{background:var(--accent)}
 .badge.muted{background:#eef1f5;color:var(--muted)}
 .muted{color:var(--muted);font-size:13px}
 .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
-.player-item{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px}
-.player-item-head{margin-bottom:6px}
-.player-item-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted);margin-top:4px}
+.player-item{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:6px}
+.player-item-head{margin-bottom:4px;font-size:14px}
+.player-item-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--muted);margin-top:3px}
+.player-item .row{gap:6px;margin-top:6px}
+.player-item .row>*{flex:0 0 auto;min-width:0}
+.collapsible-header{cursor:pointer;user-select:none;margin-bottom:0}
+.collapsible-header:hover{color:var(--accent2)}
+.collapsible-body{margin-top:12px}
+.admin-card{padding:12px 14px}
+.admin-card button.btn{padding:6px 12px;min-height:34px;font-size:13px}
 table{width:100%;border-collapse:collapse;font-size:14px;min-width:420px}
 th,td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 tr:hover td{background:#f7f9fc}
@@ -94,6 +105,7 @@ a.link:hover{color:var(--accent)}
   <div class="brand"><b>🇸🇬 <span class="ball">🏓</span> Singapore Table Tennis League</b><small>Play. Challenge. Climb the ranks.</small></div>
   <div id="headerSponsor" class="sponsor">Sponsored by <a href="https://www.sintensports.com.sg/" target="_blank">Sin Ten Sports Trading</a></div>
   <div id="whoBar" class="sponsor" style="text-align:right"></div>
+  <a class="help-fab" href="https://wa.me/qr/NW3OPXQ4I5JYB1" target="_blank" rel="noopener" title="Questions? Chat with technical support on WhatsApp" aria-label="Technical support on WhatsApp">💬</a>
 </header>
 
 <nav id="nav" class="hidden">
@@ -147,7 +159,8 @@ async function callFn(payload, needsAuth){
   }
 }
 
-let session=null, me=null, activeTab='play', players=[], communities=[], sponsorVisible=true, dashboardShowAll=false;
+const WHATSAPP_URL = 'https://wa.me/qr/NW3OPXQ4I5JYB1';
+let session=null, me=null, activeTab='play', players=[], communities=[], sponsorVisible=true, dashboardShowAll=false, mostPlayedView='this';
 function applySponsorVisibility(){
   const h=document.getElementById('headerSponsor'), f=document.getElementById('footerSponsor');
   if(h) h.style.display = sponsorVisible ? '' : 'none';
@@ -186,6 +199,23 @@ function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'
 function daysSince(d){ if(!d) return 9999; return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
 function fmtDate(d){return d? new Date(d).toLocaleDateString():'-';}
 function fmtDateTime(d){return d? new Date(d).toLocaleString():'Never';}
+// Match dates: always the date/time the match was PLAYED. Admin-only
+// screens may additionally show the created time.
+function fmtPlayed(d){return d? new Date(d).toLocaleString():'—';}
+function localInputValue(dt){
+  const x=new Date(dt.getTime()-dt.getTimezoneOffset()*60000);
+  return x.toISOString().slice(0,16);
+}
+// mode 'challenge' = a future/near-future arrangement; 'played' = already played.
+function validatePlayWhenVenue(whenVal, venue, mode){
+  if(!whenVal) return mode==='played' ? 'Please enter the date and time the match was played.' : 'Please choose the date and time you want to play.';
+  const t=new Date(whenVal).getTime();
+  if(isNaN(t)) return 'That date and time is not valid.';
+  if(!venue) return 'Please choose the venue (or type it in if it is not listed).';
+  if(mode==='played' && t > Date.now()+10*60*1000) return 'A match that has already been played cannot have a date in the future.';
+  if(mode==='challenge' && t < Date.now()-60*60*1000) return 'The date and time cannot be more than an hour in the past.';
+  return '';
+}
 function isTrialActive(p){return new Date(p.trial_ends_on) >= new Date(new Date().toDateString());}
 function canPlay(p){return p.is_approved && (isTrialActive(p) || p.is_subscribed);}
 
@@ -228,18 +258,18 @@ async function renderGuestDashboard(){
   const all = await computeLeagueStats();
   const byRating = [...all].sort((a,b)=>b.rating-a.rating);
   const champion = byRating[0];
-  const mostPlayed = [...all].sort((a,b)=>b.played-a.played)[0];
+  const mostPlayed = rankMostPlayed(all)[0];
   const singlesBoard = [...all].sort((a,b)=>b.singlesWins-a.singlesWins || (b.singlesWins-b.singlesLosses)-(a.singlesWins-a.singlesLosses));
   const doublesBoard = [...all].sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
   const limitFor = (list) => dashboardShowAll ? list.length : 15;
   const guestBoardRows = (list, wKey, lKey) => list.slice(0,limitFor(list)).map((p,i)=>`
-    <tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p[wKey]+p[lKey]}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No players yet.</td></tr>';
+    <tr><td>${i+1}</td><td>${esc(p.name)}</td><td><b>${p.rating}</b></td><td>${p[wKey]+p[lKey]}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No players yet.</td></tr>';
 
   app.innerHTML = `
   <div class="card"><button class="btn ghost" id="guest_back">← Back to Login</button></div>
   <div class="card"><h2>League highlights</h2>
     <p>🏆 <b>Overall Champion (points):</b> ${champion? `${champion.name} — ${champion.rating} pts`:'-'}</p>
-    <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${mostPlayed.name} — ${mostPlayed.played} matches`:'-'}</p>
+    <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${esc(mostPlayed.name)} — ${mostPlayed.played} matches`:'-'}</p>
   </div>
   <div class="card">
     <p class="muted" style="margin:0 0 8px">Showing ${dashboardShowAll? 'all '+all.length : 'top 15 of '+all.length} registered players.</p>
@@ -250,14 +280,14 @@ async function renderGuestDashboard(){
   </div>
   <div class="card"><h2>Overall leaderboard (by points)</h2>
     <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>Played</th><th>W–L</th><th>Win %</th></tr>
-    ${byRating.slice(0,limitFor(byRating)).map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p.rating}</td><td>${p.played}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No players yet.</td></tr>'}
+    ${byRating.slice(0,limitFor(byRating)).map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p.rating}</td><td>${p.played}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No players yet.</td></tr>'}
     </table></div>
   </div>
   <div class="card"><h2>Singles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${guestBoardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${guestBoardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
   </div>
   <div class="card"><h2>Doubles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${guestBoardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Points</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${guestBoardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
   </div>`;
   document.getElementById('guest_back').onclick = renderLogin;
   document.getElementById('dash_top15').onclick = ()=>{ dashboardShowAll=false; renderGuestDashboard(); };
@@ -473,11 +503,27 @@ async function renderCompleteProfile(user){
 function showJustRegisteredNotice(){
   modal(`<h2>Account created 🏓</h2>
     <p>Welcome to the Singapore Table Tennis League! Your account is now <b>pending admin approval</b> — once approved you'll be able to challenge other players. You can look around the app in the meantime.</p>
-    <button class="btn" id="reg_ok">Got it</button>`);
+    <p class="muted">Want it approved faster? Message the admin on WhatsApp and ask them to approve your account.</p>
+    <div class="row">
+      <a class="btn" href="${WHATSAPP_URL}" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">💬 Message admin on WhatsApp</a>
+      <button class="btn ghost" id="reg_ok">Got it</button>
+    </div>`);
   document.getElementById('reg_ok').onclick = closeModal;
 }
 
 // ---------- BOOT ----------
+// One row per sign-in (at most one per 30 minutes per browser session) so the
+// admin dashboard can show daily/weekly/monthly activity. Failures are
+// ignored — logging must never get in the way of logging in.
+function logLogin(){
+  try{
+    const k='sttl_login_logged_'+me.id;
+    const last=+sessionStorage.getItem(k)||0;
+    if(Date.now()-last<30*60*1000) return;
+    sessionStorage.setItem(k,String(Date.now()));
+  }catch(e){}
+  try{ sb.from('sttl_login_log').insert({user_id:me.id}).then(()=>{},()=>{}); }catch(e){}
+}
 async function loadMeAndBoot(){
   const {data:{user}} = await sb.auth.getUser();
   if(!user){ renderLogin(); return; }
@@ -487,6 +533,7 @@ async function loadMeAndBoot(){
   const previousLoginAt = me.last_login_at; // keep pre-update value to display as "last login"
   sb.from('sttl_players').update({last_login_at:new Date().toISOString()}).eq('id',me.id).then(()=>{});
   me.last_login_at = previousLoginAt;
+  logLogin();
   nav.classList.remove('hidden');
   document.getElementById('whoBar').innerHTML = `<div>${esc(me.name)} · ${esc(me.community_center)}</div><div style="font-size:11px;opacity:.85">${me.is_subscribed?'Subscribed':'Not subscribed'} · Free trial until ${fmtDate(me.trial_ends_on)}</div>`;
   document.getElementById('adminNavBtn').classList.toggle('hidden', !me.is_admin);
@@ -518,6 +565,18 @@ async function checkLoginPopups(){
 }
 async function showMatchPopup(){
   const {data:ch} = await sb.from('sttl_challenges').select('*').or(`challenger_id.eq.${me.id},opponent_id.eq.${me.id}`).eq('status','accepted');
+  const chIds = (ch||[]).map(c=>c.id);
+  let results = [];
+  if(chIds.length){
+    const {data} = await sb.from('sttl_match_results').select('*').in('challenge_id',chIds);
+    results = data || [];
+  }
+  // Completed (acknowledged) matches are done — only count what still
+  // needs something from the player: a match with no result yet
+  // ("upcoming"), or a submitted result waiting on their acknowledgement
+  // ("pending action").
+  const upcoming = (ch||[]).filter(c => !results.find(r=>r.challenge_id===c.id));
+  const pendingAction = results.filter(r => !r.acknowledged && r.entered_by !== me.id);
   const {data:pend} = await sb.from('sttl_challenges').select('*').eq('opponent_id',me.id).eq('status','pending');
   if(me.is_admin){
     const {data:newUsers} = await sb.from('sttl_players').select('id').eq('is_approved',false);
@@ -527,9 +586,10 @@ async function showMatchPopup(){
       return;
     }
   }
-  if((ch&&ch.length) || (pend&&pend.length)){
+  const totalPendingAction = pendingAction.length + (pend?pend.length:0);
+  if(upcoming.length || totalPendingAction){
     modal(`<h2>Welcome back!</h2>
-      <p>${ch?ch.length:0} upcoming accepted match(es), ${pend?pend.length:0} pending challenge(s) waiting on you.</p>
+      <p>${upcoming.length} upcoming match(es), ${totalPendingAction} pending action(s) waiting on you.</p>
       <button class="btn" id="okM">Got it</button>`);
     document.getElementById('okM').onclick=closeModal;
   }
@@ -546,13 +606,27 @@ function renderTab(){
 }
 
 async function refreshPlayers(){
-  const {data} = await sb.from('sttl_players').select('id,name,community_center,is_approved,is_subscribed,rating').eq('is_approved',true);
+  const {data} = await sb.from('sttl_players').select('id,name,community_center,is_approved,is_subscribed,rating').eq('is_approved',true).order('name');
   players = (data||[]).filter(p=>p.id!==me.id);
 }
 
+// Pages through a query so lists longer than the server's 1000-row cap
+// still load completely.
+async function fetchAllRows(build){
+  const out=[]; const size=1000;
+  for(let from=0;;from+=size){
+    const {data,error}=await build(from,from+size-1);
+    if(error||!data) break;
+    out.push(...data);
+    if(data.length<size) break;
+  }
+  return out;
+}
+let leagueCache = null; // {players, results} from the latest computeLeagueStats()
 async function computeLeagueStats(){
   const {data:allPlayers} = await sb.from('sttl_players').select('id,name,rating,is_approved,photo_url');
-  const {data:results} = await sb.from('sttl_match_results').select('*, sttl_challenges(*)').eq('acknowledged',true);
+  const results = await fetchAllRows((a,b)=>sb.from('sttl_match_results').select('*, sttl_challenges(*)').eq('acknowledged',true).order('id').range(a,b));
+  leagueCache = {players:allPlayers||[], results:results||[]};
   const stat = {}; // id -> {wins,losses,played,singlesWins,singlesLosses,doublesWins,doublesLosses}
   const ensure = id => stat[id] || (stat[id] = {wins:0,losses:0,played:0,singlesWins:0,singlesLosses:0,doublesWins:0,doublesLosses:0});
   (results||[]).forEach(r=>{
@@ -574,6 +648,42 @@ async function computeLeagueStats(){
     ...(stat[p.id]||{})
   }));
   return merged;
+}
+
+// ---- Most-played boards -------------------------------------------------
+function monthKeyOf(d){ const x=new Date(d); return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0'); }
+function monthKeyOffset(off){ const x=new Date(); x.setDate(1); x.setMonth(x.getMonth()+off); return monthKeyOf(x); }
+function monthLabel(key){ const [y,m]=key.split('-'); return new Date(+y,+m-1,1).toLocaleDateString(undefined,{month:'long',year:'numeric'}); }
+// The date a result belongs to is the date the match was PLAYED.
+function resultPlayedAt(r){ return r.sttl_challenges?.scheduled_at || r.recorded_at || r.created_at; }
+// period: 'overall' or a month key like '2026-10'
+function mostPlayedRows(period){
+  if(!leagueCache) return [];
+  const stat={};
+  leagueCache.results.forEach(r=>{
+    const c=r.sttl_challenges; if(!c) return;
+    if(period!=='overall' && monthKeyOf(resultPlayedAt(r))!==period) return;
+    const A=[c.challenger_id,c.challenger_partner_id].filter(Boolean);
+    const B=[c.opponent_id,c.opponent_partner_id].filter(Boolean);
+    const win = r.winner_side==='challenger'?A:B, lose = r.winner_side==='challenger'?B:A;
+    win.forEach(id=>{ const t=stat[id]||(stat[id]={played:0,wins:0,losses:0}); t.played++; t.wins++; });
+    lose.forEach(id=>{ const t=stat[id]||(stat[id]={played:0,wins:0,losses:0}); t.played++; t.losses++; });
+  });
+  return leagueCache.players.filter(p=>p.is_approved).map(p=>({id:p.id,name:p.name,rating:p.rating,photo_url:p.photo_url,played:0,wins:0,losses:0,...(stat[p.id]||{})}));
+}
+// Most matches played comes first (this beats winning). Ties are broken in a
+// fixed order so there is always exactly one leader:
+//   1) most matches played  2) most wins  3) higher rating points  4) name A–Z
+function rankMostPlayed(rows){
+  return [...rows].sort((a,b)=> b.played-a.played || b.wins-a.wins || b.rating-a.rating || String(a.name).localeCompare(String(b.name)));
+}
+function tieNote(sorted){
+  if(sorted.length<2 || sorted[0].played===0) return '';
+  const a=sorted[0], b=sorted[1];
+  if(a.played!==b.played) return '';
+  if(a.wins!==b.wins) return `tied on ${a.played} played — decided by most wins`;
+  if(a.rating!==b.rating) return `tied on ${a.played} played and ${a.wins} wins — decided by higher points`;
+  return `tied on everything — decided alphabetically`;
 }
 
 function winPct(wins, losses){
@@ -600,6 +710,32 @@ function avatarHtml(p, size){
   const url = p.photo_url || DUMMY_AVATAR;
   return `<img src="${url}" alt="" onclick="event.stopPropagation();showPhotoModal('${esc(url)}')" style="width:${size}px;height:${h}px;border-radius:5px;object-fit:cover;vertical-align:middle;margin-right:6px;cursor:pointer;border:1px solid var(--line)">`;
 }
+function compressImage(file, maxDim, quality){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onerror = ()=>reject(new Error('Could not read the file.'));
+    reader.onload = ()=>{
+      img.onerror = ()=>reject(new Error('Could not read the image.'));
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        if(w > maxDim || h > maxDim){
+          if(w >= h){ h = Math.round(h * (maxDim/w)); w = maxDim; }
+          else { w = Math.round(w * (maxDim/h)); h = maxDim; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        canvas.toBlob(blob=>{
+          if(!blob){ reject(new Error('Could not compress the image.')); return; }
+          resolve(blob);
+        }, 'image/jpeg', quality);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 window.showPhotoModal = (url)=>{
   modal(`<div style="text-align:center"><img src="${url}" alt="" style="max-width:100%;max-height:70vh;border-radius:8px;border:1px solid var(--line)"></div>
     <div class="row" style="margin-top:12px"><button class="btn ghost" onclick="closeModal()">Close</button></div>`);
@@ -608,8 +744,10 @@ async function renderMatchHistory(matchType){
   const {data} = await sb.from('sttl_match_results')
     .select('*, sttl_challenges!inner(match_type,challenger_id,opponent_id,challenger_partner_id,opponent_partner_id,venue,scheduled_at)')
     .eq('acknowledged',true).eq('sttl_challenges.match_type',matchType)
-    .order('recorded_at',{ascending:false}).limit(25);
-  const rows = await Promise.all((data||[]).map(async r=>{
+    .order('recorded_at',{ascending:false}).limit(150);
+  // Newest PLAYED first (not newest recorded)
+  const sorted = (data||[]).sort((a,b)=> new Date(b.sttl_challenges?.scheduled_at||b.recorded_at) - new Date(a.sttl_challenges?.scheduled_at||a.recorded_at)).slice(0,25);
+  const rows = await Promise.all(sorted.map(async r=>{
     const c = r.sttl_challenges;
     const side1 = matchType==='doubles'
       ? `${await nameOf(c.challenger_id)} &amp; ${await nameOf(c.challenger_partner_id)}`
@@ -619,7 +757,7 @@ async function renderMatchHistory(matchType){
       : await nameOf(c.opponent_id);
     const winnerText = r.winner_side==='challenger' ? side1 : side2;
     const pointsText = r.rating_delta ? `<span class="badge ok">+${r.rating_delta}</span> <span class="badge warn">−${r.rating_delta}</span>` : '<span class="muted">—</span>';
-    return `<tr><td>${fmtDateTime(r.recorded_at)}</td><td>${side1}</td><td>${side2}</td><td>🏆 ${winnerText}</td><td>${pointsText}</td></tr>`;
+    return `<tr><td>${fmtPlayed(c.scheduled_at||r.recorded_at)}</td><td>${side1}</td><td>${side2}</td><td>🏆 ${winnerText}</td><td>${pointsText}</td></tr>`;
   }));
   return rows.join('') || '<tr><td colspan="5" class="muted">No matches recorded yet.</td></tr>';
 }
@@ -636,7 +774,7 @@ async function renderDashboard(){
   const byRating = [...all].sort((a,b)=>b.rating-a.rating);
   const myRank = byRating.findIndex(p=>p.id===me.id)+1;
   const champion = byRating[0];
-  const mostPlayed = [...all].sort((a,b)=>b.played-a.played)[0];
+  const mostPlayed = rankMostPlayed(all)[0];
   // Every approved player appears here, whether they've played or not —
   // sorted by wins first, so anyone who's actually played rises above the
   // 0-played entries naturally.
@@ -644,14 +782,32 @@ async function renderDashboard(){
   const doublesBoard = [...all].sort((a,b)=>b.doublesWins-a.doublesWins || (b.doublesWins-b.doublesLosses)-(a.doublesWins-a.doublesLosses));
   const mine = all.find(p=>p.id===me.id) || {wins:0,losses:0,played:0,rating:me.rating,photo_url:me.photo_url};
 
+  // League-wide match counts (one row in sttl_match_results = one match).
+  // Counted by the date each match was PLAYED.
+  const curKey = monthKeyOffset(0), lastKey = monthKeyOffset(-1);
+  const leagueTotal = leagueCache ? leagueCache.results.length : 0;
+  const leagueMonth = leagueCache ? leagueCache.results.filter(r=>monthKeyOf(resultPlayedAt(r))===curKey).length : 0;
+  const mpOverall = rankMostPlayed(mostPlayedRows('overall'));
+  const mpThis = rankMostPlayed(mostPlayedRows(curKey));
+  const mpLast = rankMostPlayed(mostPlayedRows(lastKey));
+  const mpView = mostPlayedView==='overall' ? {k:'overall',rows:mpOverall,label:'Overall (all time)'}
+               : mostPlayedView==='last' ? {k:lastKey,rows:mpLast,label:monthLabel(lastKey)}
+               : {k:curKey,rows:mpThis,label:monthLabel(curKey)};
+  const leaderLine = (rows)=> rows[0] && rows[0].played>0 ? `${esc(rows[0].name)} — ${rows[0].played} matches${tieNote(rows)?` <span class="muted">(${tieNote(rows)})</span>`:''}` : '-';
+  // Monthly champions for the last 6 months (including this one).
+  const champRows = [0,-1,-2,-3,-4,-5].map(off=>{
+    const k=monthKeyOffset(off); const r=rankMostPlayed(mostPlayedRows(k));
+    return `<tr><td>${monthLabel(k)}</td><td>${r[0]&&r[0].played>0? '👑 '+esc(r[0].name):'<span class="muted">No matches</span>'}</td><td>${r[0]&&r[0].played>0? r[0].played:'—'}</td><td class="muted">${tieNote(r)}</td></tr>`;
+  }).join('');
+
   const limitFor = (list) => dashboardShowAll ? list.length : 15;
   const boardRows = (list, wKey, lKey) => list.slice(0,limitFor(list)).map((p,i)=>`
-    <tr><td>${i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${ratingLevel(p.rating)}</span></td><td>${p[wKey]+p[lKey]}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No players yet.</td></tr>';
+    <tr><td>${i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${ratingLevel(p.rating)}</span></td><td><b>${p.rating}</b></td><td>${p[wKey]+p[lKey]}</td><td>${p[wKey]}</td><td>${p[lKey]}</td><td>${winPct(p[wKey],p[lKey])}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No players yet.</td></tr>';
 
   app.innerHTML = `
   <div class="card"><h2>Your status</h2>
     <div class="row" style="align-items:center">
-      ${avatarHtml(mine,56)}
+      <img src="${mine.photo_url || DUMMY_AVATAR}" alt="" style="width:90px;height:110px;object-fit:contain;background:var(--bg);border:1px solid var(--line);border-radius:6px;margin-right:10px">
       <div>
         <input type="file" id="photo_file" accept="image/*" style="max-width:220px">
         <button class="btn ghost" id="photo_submit" style="margin-top:6px">Upload photo</button>
@@ -664,12 +820,32 @@ async function renderDashboard(){
       <div class="card" style="margin:0"><div class="muted">Record</div><div style="font-size:26px;font-weight:700">${mine.wins}W – ${mine.losses}L</div></div>
       <div class="card" style="margin:0"><div class="muted">Win %</div><div style="font-size:26px;font-weight:700">${winPct(mine.wins,mine.losses)}</div></div>
       <div class="card" style="margin:0"><div class="muted">Overall rank</div><div style="font-size:26px;font-weight:700">#${myRank||'-'} <span class="muted" style="font-size:14px">of ${byRating.length}</span></div></div>
+      <div class="card" style="margin:0"><div class="muted">Matches played by you</div><div style="font-size:26px;font-weight:700">${mine.played}</div></div>
+      <div class="card" style="margin:0"><div class="muted">League matches (all time)</div><div style="font-size:26px;font-weight:700">${leagueTotal}</div></div>
+      <div class="card" style="margin:0"><div class="muted">League matches this month</div><div style="font-size:26px;font-weight:700">${leagueMonth}</div></div>
     </div>
     <p class="muted" style="margin-top:10px">Last login: ${fmtDateTime(me.last_login_at)}</p>
   </div>
   <div class="card"><h2>League highlights</h2>
     <p>🏆 <b>Overall Champion (points):</b> ${champion? `${esc(champion.name)} — ${champion.rating} pts`:'-'}</p>
-    <p>🎯 <b>Most Played Player:</b> ${mostPlayed && mostPlayed.played>0 ? `${esc(mostPlayed.name)} — ${mostPlayed.played} matches`:'-'}</p>
+    <p>🎯 <b>Most Played — overall:</b> ${leaderLine(mpOverall)}</p>
+    <p>📅 <b>Most Played — ${monthLabel(curKey)}:</b> ${leaderLine(mpThis)}</p>
+    <p>🗓️ <b>Most Played — ${monthLabel(lastKey)}:</b> ${leaderLine(mpLast)}</p>
+    <p class="muted">Ranked by matches played first, then wins, then points. See the Info tab for the full tie-break rules.</p>
+  </div>
+  <div class="card"><h2>🎯 Most played leaderboard</h2>
+    <div class="row">
+      <button class="btn ${mpView.k===curKey?'':'ghost'}" id="mp_this">This month</button>
+      <button class="btn ${mpView.k===lastKey?'':'ghost'}" id="mp_last">Last month</button>
+      <button class="btn ${mpView.k==='overall'?'':'ghost'}" id="mp_overall">Overall</button>
+    </div>
+    <p class="muted" style="margin:8px 0">${mpView.label} — most matches played wins; if tied: most wins, then higher points, then name A–Z.</p>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th><th>Points</th></tr>
+    ${mpView.rows.slice(0,limitFor(mpView.rows)).map((p,i)=>`<tr><td>${i===0&&p.played>0?'👑':i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td>${p.played}</td><td>${p.wins}</td><td>${p.losses}</td><td>${winPct(p.wins,p.losses)}</td><td>${p.rating}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No players yet.</td></tr>'}
+    </table></div>
+  </div>
+  <div class="card"><h2>👑 Monthly most-played champions</h2>
+    <div class="table-scroll"><table><tr><th>Month</th><th>Champion</th><th>Matches</th><th>Tie-break</th></tr>${champRows}</table></div>
   </div>
   <div class="card"><h2>🏅 Levels by Rating</h2>
     <div class="table-scroll"><table><tr><th>Rating Band</th><th>Level</th><th>What it means</th></tr>
@@ -688,17 +864,20 @@ async function renderDashboard(){
     </div>
   </div>
   <div class="card"><h2>Overall leaderboard (by points)</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Played</th><th>W–L</th><th>Win %</th></tr>
-    ${byRating.slice(0,limitFor(byRating)).map((p,i)=>`<tr><td>${i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${ratingLevel(p.rating)}</span></td><td>${p.played}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No players yet.</td></tr>'}
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Points</th><th>Played</th><th>W–L</th><th>Win %</th></tr>
+    ${byRating.slice(0,limitFor(byRating)).map((p,i)=>`<tr><td>${i+1}</td><td>${avatarHtml(p,22)}${esc(p.name)}${p.id===me.id?' <span class="tag">you</span>':''}</td><td><span class="tag">${ratingLevel(p.rating)}</span></td><td><b>${p.rating}</b></td><td>${p.played}</td><td>${p.wins}–${p.losses}</td><td>${winPct(p.wins,p.losses)}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No players yet.</td></tr>'}
     </table></div>
   </div>
   <div class="card"><h2>Singles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Points</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(singlesBoard,'singlesWins','singlesLosses')}</table></div>
   </div>
   <div class="card"><h2>Doubles leaderboard</h2>
-    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
+    <div class="table-scroll"><table><tr><th>#</th><th>Player</th><th>Level</th><th>Points</th><th>Played</th><th>Wins</th><th>Losses</th><th>Win %</th></tr>${boardRows(doublesBoard,'doublesWins','doublesLosses')}</table></div>
   </div>`;
 
+  document.getElementById('mp_this').onclick = ()=>{ mostPlayedView='this'; renderDashboard(); };
+  document.getElementById('mp_last').onclick = ()=>{ mostPlayedView='last'; renderDashboard(); };
+  document.getElementById('mp_overall').onclick = ()=>{ mostPlayedView='overall'; renderDashboard(); };
   document.getElementById('dash_top15').onclick = ()=>{ dashboardShowAll=false; renderDashboard(); };
   document.getElementById('dash_showall').onclick = ()=>{ dashboardShowAll=true; renderDashboard(); };
   document.getElementById('photo_submit').onclick = async (e)=>{
@@ -707,9 +886,13 @@ async function renderDashboard(){
     const err=document.getElementById('photo_err');
     const file=fileInput.files[0];
     if(!file){ err.textContent='Please choose a photo.'; return; }
+    setLoading(btn,true,'Compressing...');
+    let compressed;
+    try{ compressed = await compressImage(file, 600, 0.8); }
+    catch(compressErr){ setLoading(btn,false); err.textContent = compressErr.message; return; }
     setLoading(btn,true,'Uploading...');
-    const path = `${me.id}/${Date.now()}-${file.name}`;
-    const {error:upErr} = await sb.storage.from('player-photos').upload(path, file, {upsert:true});
+    const path = `${me.id}/${Date.now()}.jpg`;
+    const {error:upErr} = await sb.storage.from('player-photos').upload(path, compressed, {upsert:true, contentType:'image/jpeg'});
     if(upErr){ setLoading(btn,false); err.textContent = upErr.message; return; }
     const {data:urlData} = sb.storage.from('player-photos').getPublicUrl(path);
     const {error:updErr} = await sb.from('sttl_players').update({photo_url:urlData.publicUrl}).eq('id',me.id);
@@ -720,6 +903,41 @@ async function renderDashboard(){
   };
 }
 
+// Admin sections start collapsed (there are many of them). Which ones the
+// admin has opened is remembered for the session, so an action like
+// "Approve" — which re-renders the tab — doesn't snap everything shut.
+const adminOpenSections = new Set();
+function makeCollapsible(container){
+  [...container.children].filter(el=>el.classList.contains('card')).forEach(card=>{
+    const h2 = [...card.children].find(el=>el.tagName==='H2');
+    if(!h2) return;
+    const label = h2.textContent;
+    const body = document.createElement('div');
+    body.className = 'collapsible-body';
+    [...card.childNodes].forEach(n=>{ if(n!==h2) body.appendChild(n); });
+    card.appendChild(body);
+    card.classList.add('admin-card');
+    h2.classList.add('collapsible-header');
+    const setState = (open)=>{
+      body.classList.toggle('hidden', !open);
+      h2.textContent = (open ? '▾ ' : '▸ ') + label;
+    };
+    setState(adminOpenSections.has(label));
+    h2.onclick = ()=>{
+      const open = body.classList.contains('hidden');
+      if(open) adminOpenSections.add(label); else adminOpenSections.delete(label);
+      setState(open);
+    };
+  });
+}
+
+// Best-effort sweep: approves any result that's sat unacknowledged for 48h+.
+// Errors are deliberately swallowed — this must never block a page from
+// loading (e.g. if the database function hasn't been deployed yet).
+async function quietAutoApprove(){
+  try{ await sb.rpc('auto_approve_stale_results'); }catch(e){ /* ignore */ }
+}
+
 async function renderPlay(){
   if(!canPlay(me)){
     app.innerHTML = `<div class="card"><h2>Play</h2>
@@ -727,6 +945,7 @@ async function renderPlay(){
     return;
   }
   showLoading('Loading your matches…');
+  await quietAutoApprove();
   if(communities.length===0){
     const {data} = await sb.from('sttl_communities').select('name').order('name');
     communities = data || [];
@@ -741,7 +960,7 @@ async function renderPlay(){
 
   const matchRows = await Promise.all((accepted||[]).map(async c=>{
     const res = results.find(r=>r.challenge_id===c.id);
-    const when = c.scheduled_at ? fmtDateTime(c.scheduled_at) : '<span class="muted">Not scheduled</span>';
+    const when = c.scheduled_at ? fmtPlayed(c.scheduled_at) : '<span class="muted">—</span>';
     const venue = c.venue ? esc(c.venue) : '<span class="muted">—</span>';
     let action='';
     if(!res){
@@ -775,7 +994,7 @@ async function renderPlay(){
     </div>
     <label>Winner</label>
     <select id="qr_winner"><option value="me">Me</option><option value="opp">Opponent</option></select>
-    <label>Date played</label>
+    <label>Date &amp; time played (required)</label>
     <input type="datetime-local" id="qr_when">
     ${venuePickerHtml('qr_venue')}
     <button class="btn" id="qr_submit" style="margin-top:12px">Submit for opponent's approval</button>
@@ -783,7 +1002,7 @@ async function renderPlay(){
   </div>
   <div class="card"><h2>Your matches</h2>
     <p class="muted">Pick the winner — your opponent must accept it for the points to reflect.</p>
-    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>When</th><th>Venue</th><th>Points</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=7 class="muted">No accepted matches yet.</td></tr>'}</table></div>
+    <div class="table-scroll"><table><tr><th>Challenger</th><th>Opponent</th><th>Type</th><th>Played / due</th><th>Venue</th><th>Points</th><th>Status</th></tr>${matchRows.join('')||'<tr><td colspan=7 class="muted">No accepted matches yet.</td></tr>'}</table></div>
   </div>
   <div class="card"><h2>Challenge someone</h2>
     <label>Match type</label>
@@ -794,7 +1013,7 @@ async function renderPlay(){
       <label>Your partner</label><select id="myPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
       <label>Opponent's partner</label><select id="oppPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
     </div>
-    <label>Date &amp; time you want to play</label>
+    <label>Date &amp; time you want to play (required)</label>
     <input type="datetime-local" id="whenPlay">
     ${venuePickerHtml('venue')}
     <button class="btn" id="sendChallenge" style="margin-top:12px">Send Challenge</button>
@@ -816,14 +1035,21 @@ async function renderPlay(){
     document.getElementById('partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
   };
   wireVenuePicker('venue');
+  document.getElementById('whenPlay').min = localInputValue(new Date(Date.now()-60*60*1000));
+  document.getElementById('qr_when').max = localInputValue(new Date());
   document.getElementById('sendChallenge').onclick = async (e)=>{
     const btn=e.currentTarget;
     const opponent_id0 = document.getElementById('opp').value;
     const errEl=document.getElementById('ch_err');
+    errEl.textContent='';
+    const _whenChk=validatePlayWhenVenue(document.getElementById('whenPlay').value, getVenueValue('venue'), 'challenge');
+    if(_whenChk){ errEl.textContent=_whenChk; return; }
     setLoading(btn,true,'Sending...');
-    if(await playedRecently(opponent_id0)){
+    const _mt0=document.getElementById('mtype').value;
+    const _lim0=await monthlyLimitMessage(opponent_id0,_mt0,document.getElementById('whenPlay').value);
+    if(_lim0){
       setLoading(btn,false);
-      errEl.textContent='You can only challenge the same player again 24 hours after your last match with them.';
+      errEl.textContent=_lim0;
       return;
     }
     const match_type = document.getElementById('mtype').value;
@@ -831,8 +1057,8 @@ async function renderPlay(){
     const whenVal = document.getElementById('whenPlay').value;
     const venue = getVenueValue('venue');
     const payload = {challenger_id:me.id, opponent_id, match_type, status:'pending'};
-    if(whenVal) payload.scheduled_at = new Date(whenVal).toISOString();
-    if(venue) payload.venue = venue;
+    payload.scheduled_at = new Date(whenVal).toISOString();
+    payload.venue = venue;
     if(match_type==='doubles'){
       payload.challenger_partner_id = document.getElementById('myPartner').value;
       payload.opponent_partner_id = document.getElementById('oppPartner').value;
@@ -874,15 +1100,19 @@ async function renderPlay(){
     const winner = document.getElementById('qr_winner').value;
     const whenVal = document.getElementById('qr_when').value;
     const venue = getVenueValue('qr_venue');
+    err.textContent='';
+    const _whenChk=validatePlayWhenVenue(whenVal, venue, 'played');
+    if(_whenChk){ err.textContent=_whenChk; return; }
     setLoading(btn,true,'Submitting...');
-    if(await playedRecently(opponent_id)){
+    const _lim1=await monthlyLimitMessage(opponent_id,match_type,whenVal);
+    if(_lim1){
       setLoading(btn,false);
-      err.textContent='You can only record another match against the same player 24 hours after your last one with them.';
+      err.textContent=_lim1;
       return;
     }
     const payload = {challenger_id:me.id, opponent_id, match_type, status:'accepted'};
-    if(whenVal) payload.scheduled_at = new Date(whenVal).toISOString();
-    if(venue) payload.venue = venue;
+    payload.scheduled_at = new Date(whenVal).toISOString();
+    payload.venue = venue;
     if(match_type==='doubles'){
       payload.challenger_partner_id = document.getElementById('qr_myPartner').value;
       payload.opponent_partner_id = document.getElementById('qr_oppPartner').value;
@@ -898,21 +1128,27 @@ async function renderPlay(){
 
 async function nameOf(id){ const p = players.find(x=>x.id===id) || (id===me.id?me:null); return p? esc(p.name) : id?.slice(0,6); }
 
-async function playedRecently(opponentId){
-  // Friendly client-side check for the UI; the database itself also
-  // enforces this (see the "insert own challenge" policy), so this can't
-  // be bypassed by calling the API directly.
-  const since = new Date(Date.now() - 24*3600*1000).toISOString();
-  const {data} = await sb.from('sttl_challenges').select('id')
-    .gt('created_at', since)
-    .or(`and(challenger_id.eq.${me.id},opponent_id.eq.${opponentId}),and(challenger_id.eq.${opponentId},opponent_id.eq.${me.id})`)
-    .limit(1);
-  return (data||[]).length > 0;
+async function monthlyLimitMessage(opponentId, matchType, whenVal){
+  // Friendly client-side pre-check; the database trigger is the real enforcement.
+  // Limits are counted by the month the match is PLAYED in.
+  const base = whenVal ? new Date(whenVal) : new Date();
+  const monthStart=new Date(base.getFullYear(), base.getMonth(), 1).toISOString();
+  const nextStart=new Date(base.getFullYear(), base.getMonth()+1, 1).toISOString();
+  const {data:mine}=await sb.from('sttl_challenges').select('id,match_type,challenger_id,opponent_id,challenger_partner_id,opponent_partner_id')
+    .gte('scheduled_at', monthStart).lt('scheduled_at', nextStart)
+    .or(`challenger_id.eq.${me.id},opponent_id.eq.${me.id},challenger_partner_id.eq.${me.id},opponent_partner_id.eq.${me.id}`);
+  const rows=mine||[];
+  if(rows.length>=10) return 'You have reached the limit of 10 matches in that calendar month.';
+  if(matchType!=='doubles'){
+    const dup=rows.some(r=>r.match_type!=='doubles' && ((r.challenger_id===me.id&&r.opponent_id===opponentId)||(r.challenger_id===opponentId&&r.opponent_id===me.id)));
+    if(dup) return 'You have already played this player in singles that calendar month. The same matchup is limited to once a month.';
+  }
+  return null; // doubles matchup rule is checked by the server
 }
 
 function venuePickerHtml(prefix){
-  return `<label>Where are you playing</label>
-  <select id="${prefix}_select">${communities.map(c=>`<option value="${c.name}">${c.name}</option>`).join('')}<option value="__other__">Not listed — type it in</option></select>
+  return `<label>Venue (required)</label>
+  <select id="${prefix}_select"><option value="">Select a venue…</option>${communities.map(c=>`<option value="${c.name}">${c.name}</option>`).join('')}<option value="__other__">Not listed — type it in</option></select>
   <input id="${prefix}_other" placeholder="Enter the venue" class="hidden" style="margin-top:6px">`;
 }
 function wireVenuePicker(prefix){
@@ -1005,6 +1241,20 @@ function renderInfo(){
     <h2>How doubles scoring works</h2>
     <p>Doubles uses the same idea, but based on each <b>team's average rating</b> rather than one person's. Both partners on the winning team gain the same number of points, and both partners on the losing team lose that same number — teammates always move together.</p>
     <p class="muted">Example: Team A is rated 1000 and 1100 (team average 1050). Team B is rated 1200 and 1300 (team average 1250). If Team A pulls off the upset, both Team A players gain 24 points each, while both Team B players drop 24 points each. If Team B wins as expected instead, each player on both sides only moves 8 points.</p>
+    <h2>Match limits</h2>
+    <p>To keep the league fair, <b>the exact same matchup</b> (same players for singles, or the same four players in the same teams for doubles) can only be played <b>once per calendar month</b>. Separately, each player can play a maximum of <b>10 matches per calendar month</b>, singles and doubles combined. Both limits reset on the 1st of each month.</p>
+    <h2>Date, time and venue</h2>
+    <p>Every match needs a <b>date &amp; time</b> and a <b>venue</b> — you can't send a challenge or record a match without them. A match that has already been played can't be dated in the future. Everywhere in the app, a match shows the date and time it was <b>played</b>, and the monthly limits and leaderboards use that played date.</p>
+    <h2>Most-played leaderboards — how the winner is chosen</h2>
+    <p>Besides the points ranking, the Dashboard has a <b>Most Played</b> board for <b>this month</b>, <b>last month</b> and <b>overall</b>. It rewards turning up: the player with the <b>most matches played</b> comes first, even if someone else has more wins. Singles and doubles both count, and only matches that have been accepted/approved are counted.</p>
+    <p>If two or more players have the <b>same number of matches</b>, we always pick one leader using these tie-breaks, in this order:</p>
+    <p>1️⃣ <b>Most wins</b> &nbsp; 2️⃣ <b>Higher rating points</b> &nbsp; 3️⃣ <b>Name A–Z</b> (only if everything else is identical)</p>
+    <p class="muted">Example: Mei and Raj both played 8 matches in October. Mei won 5 and Raj won 4, so Mei is #1. If they had also both won 5, the player with more rating points would lead.</p>
+    <p>A new board starts on the <b>1st of every month</b> (by the date matches were played), so there is a fresh monthly leader each month. The “Monthly most-played champions” table keeps the last six months, and the highlights show this month's and last month's leaders.</p>
+    <h2>When a result is waiting for acceptance</h2>
+    <p>Once someone submits a winner, the other side can <b>accept</b> it or <b>reject</b> it if it's wrong (rejecting clears it so the correct winner can be entered). If nobody responds, an <b>admin can approve it at any time</b> from the Admin tab — and if it's still untouched after <b>48 hours, it's approved automatically</b>, so no match gets stuck.</p>
+    <h2>Need help?</h2>
+    <p>Tap the <b>💬 help icon</b> in the top corner, or <a class="link" href="${WHATSAPP_URL}" target="_blank">message us on WhatsApp</a>, for technical support or to ask an admin to approve your account.</p>
   </div>`;
   // Shop / discount tiers — commented out for now. To bring it back, remove
   // this comment block and the one closing it below.
@@ -1037,11 +1287,17 @@ async function renderAdminGate(){
 
 async function renderAdmin(){
   showLoading('Loading admin tools…');
+  await quietAutoApprove();
   // renderMatchHistory() below uses nameOf(), which reads the shared
   // `players` cache — otherwise only populated by the Play tab. Without
   // this, names in the match history tables here would fall back to
   // truncated ids (the same bug fixed on the Dashboard).
   await refreshPlayers();
+  // The manual match-entry venue dropdown needs the communities list too.
+  if(communities.length===0){
+    const {data} = await sb.from('sttl_communities').select('name').order('name');
+    communities = data || [];
+  }
   const {data:all} = await sb.from('sttl_players').select('*').order('created_at',{ascending:false});
   const {data:cfg} = await sb.from('sttl_app_config').select('*').eq('id',1).single();
   const {data:ccs} = await sb.from('sttl_communities').select('*').order('name');
@@ -1049,6 +1305,18 @@ async function renderAdmin(){
   const singlesHistory = await renderMatchHistory('singles');
   const doublesHistory = await renderMatchHistory('doubles');
   const {data:allChallenges} = await sb.from('sttl_challenges').select('*').order('created_at',{ascending:false}).limit(40);
+  // ---- Admin dashboard data (needs the updated sttl_schema.sql; shows a hint if not yet applied)
+  let actStats=null, anomalies=[], dashErr='';
+  try{
+    const r1 = await sb.rpc('admin_activity_stats',{p_days:30});
+    if(r1.error) dashErr = r1.error.message; else actStats = r1.data;
+    const r2 = await sb.rpc('admin_match_anomalies');
+    if(r2.error) dashErr = dashErr || r2.error.message; else anomalies = r2.data || [];
+  }catch(e){ dashErr = String(e&&e.message||e); }
+  const {data:detailChallenges} = await sb.from('sttl_challenges').select('*').order('scheduled_at',{ascending:false,nullsFirst:false}).limit(100);
+  const dIds = (detailChallenges||[]).map(c=>c.id);
+  let dResults = [];
+  if(dIds.length){ const {data} = await sb.from('sttl_match_results').select('*').in('challenge_id',dIds); dResults = data||[]; }
   const chIds = (allChallenges||[]).map(c=>c.id);
   let chResults = [];
   if(chIds.length){ const {data} = await sb.from('sttl_match_results').select('*').in('challenge_id',chIds); chResults = data||[]; }
@@ -1059,24 +1327,92 @@ async function renderAdmin(){
     const pendingOver48h = res && !res.acknowledged && (new Date(res.created_at) < new Date(Date.now()-48*3600*1000));
     const resultText = !res ? '<span class="badge muted">No result yet</span>'
       : (res.acknowledged ? `<span class="badge ok">Recorded — ${winnerName}</span>`
-        : (pendingOver48h ? '<span class="badge warn">Pending 48h+</span>' : '<span class="badge warn">Pending acceptance</span>'));
-    const approveBtn = pendingOver48h ? `<button class="btn" onclick="adminApproveResult(this,'${res.id}')">Approve (48h+)</button>` : '';
+        : (pendingOver48h ? '<span class="badge warn">Pending 48h+ (auto-approves soon)</span>' : '<span class="badge warn">Pending acceptance</span>'));
+    // Admin can approve any pending result at their discretion — no longer
+    // gated to 48h+. Anything left untouched still auto-approves at 48h
+    // via auto_approve_stale_results(), called quietly on tab load.
+    const approveBtn = (res && !res.acknowledged) ? `<button class="btn" onclick="adminApproveResult(this,'${res.id}')">Approve</button>` : '';
     return `<tr>
-      <td>${fmtDateTime(c.created_at)}</td>
+      <td>${fmtPlayed(c.scheduled_at)}</td>
       <td>${nameById(c.challenger_id)}${c.challenger_partner_id? ' &amp; '+nameById(c.challenger_partner_id):''}</td>
       <td>${nameById(c.opponent_id)}${c.opponent_partner_id? ' &amp; '+nameById(c.opponent_partner_id):''}</td>
       <td>${c.match_type}</td>
       <td>${c.status}</td>
       <td>${resultText}</td>
+      <td class="muted">${fmtDateTime(c.created_at)}</td>
       <td>${approveBtn}<button class="btn ghost" style="color:var(--warn)" onclick="deleteMatch(this,'${c.id}')">Delete</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="7" class="muted">No matches yet.</td></tr>';
+  const sevBadge = sv => `<span class="badge ${sv==='high'?'warn':(sv==='medium'?'muted':'ok')}">${esc(sv)}</span>`;
+  const flagsByMatch = {};
+  anomalies.forEach(a=>{ if(a.match_id){ (flagsByMatch[a.match_id] = flagsByMatch[a.match_id] || []).push(a); } });
+  const bar = (v,max)=> `<span style="display:inline-block;vertical-align:middle;height:8px;width:${max? Math.round(v/max*70):0}px;background:currentColor;opacity:.45;border-radius:4px;margin-left:6px"></span>`;
+  const periodTable = (rows, labelFn)=>{
+    const mx = Math.max(1, ...rows.map(r=>r.users||0));
+    const mm = Math.max(1, ...rows.map(r=>r.matches||0));
+    return `<div class="table-scroll" style="max-height:320px;overflow:auto"><table><tr><th>Period</th><th>Users logged in</th><th>Total logins</th><th>Matches played</th></tr>${rows.map(r=>`<tr><td>${labelFn(r)}</td><td>${r.users}${bar(r.users,mx)}</td><td>${r.logins}</td><td>${r.matches}${bar(r.matches,mm)}</td></tr>`).join('')}</table></div>`;
+  };
+  const dayLbl = d => new Date(d+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'});
+  let activityHtml;
+  if(actStats){
+    const dly=actStats.daily||[], wk=actStats.weekly||[], mo=actStats.monthly||[];
+    activityHtml = `
+      <p class="muted">Counts are in Singapore time. “Users logged in” counts each person once per period. Matches are counted on the date they were <b>played</b>.</p>
+      <div class="row">
+        <div class="card" style="margin:0"><div class="muted">Users logged in today</div><div style="font-size:24px;font-weight:700">${dly[0]?dly[0].users:0}</div></div>
+        <div class="card" style="margin:0"><div class="muted">This week</div><div style="font-size:24px;font-weight:700">${wk[0]?wk[0].users:0}</div></div>
+        <div class="card" style="margin:0"><div class="muted">This month</div><div style="font-size:24px;font-weight:700">${mo[0]?mo[0].users:0}</div></div>
+        <div class="card" style="margin:0"><div class="muted">Matches played today</div><div style="font-size:24px;font-weight:700">${dly[0]?dly[0].matches:0}</div></div>
+        <div class="card" style="margin:0"><div class="muted">This week</div><div style="font-size:24px;font-weight:700">${wk[0]?wk[0].matches:0}</div></div>
+        <div class="card" style="margin:0"><div class="muted">This month</div><div style="font-size:24px;font-weight:700">${mo[0]?mo[0].matches:0}</div></div>
+      </div>
+      <h3>Daily (last 30 days)</h3>${periodTable(dly, r=>dayLbl(r.day))}
+      <h3>Weekly (week starting Monday)</h3>${periodTable(wk, r=>'Week of '+dayLbl(r.start))}
+      <h3>Monthly</h3>${periodTable(mo, r=>new Date(r.start+'T00:00:00').toLocaleDateString(undefined,{month:'long',year:'numeric'}))}`;
+  } else {
+    activityHtml = `<p class="muted">Activity numbers aren't available yet. Run the latest <b>sttl_schema.sql</b> in the Supabase SQL editor to switch this on.</p><div class="error">${esc(dashErr)}</div>`;
+  }
+  const flagsHtml = dashErr && !anomalies.length
+    ? `<p class="muted">Flags aren't available yet — run the latest <b>sttl_schema.sql</b>.</p>`
+    : (anomalies.length
+      ? `<div class="table-scroll" style="max-height:320px;overflow:auto"><table><tr><th>Severity</th><th>Flag</th><th>Details</th><th>Played</th><th>Created</th></tr>${anomalies.map(a=>`<tr><td>${sevBadge(a.severity)}</td><td>${esc(a.flag)}</td><td>${esc(a.detail)}</td><td>${fmtPlayed(a.played_at)}</td><td>${a.created_at?fmtDateTime(a.created_at):'—'}</td></tr>`).join('')}</table></div>`
+      : '<p>✅ No abnormalities found.</p>');
+  const matchDetailRows = (detailChallenges||[]).map(c=>{
+    const res = dResults.find(r=>r.challenge_id===c.id);
+    const fl = flagsByMatch[c.id] || [];
+    const sideA = nameById(c.challenger_id)+(c.challenger_partner_id? ' &amp; '+nameById(c.challenger_partner_id):'');
+    const sideB = nameById(c.opponent_id)+(c.opponent_partner_id? ' &amp; '+nameById(c.opponent_partner_id):'');
+    const winner = res ? (res.winner_side==='challenger'? sideA : sideB) : '—';
+    const resTxt = !res ? '<span class="badge muted">No result</span>' : (res.acknowledged ? `<span class="badge ok">Recorded</span> 🏆 ${winner}` : `<span class="badge warn">Pending</span> 🏆 ${winner}`);
+    const pts = res && res.acknowledged && res.rating_delta ? `±${res.rating_delta}` : '—';
+    const flagTxt = fl.length ? fl.map(f=>`<span class="badge ${f.severity==='high'?'warn':'muted'}" title="${esc(f.detail)}">${esc(f.flag)}</span>`).join(' ') : '';
+    const searchText = (sideA+' '+sideB+' '+(c.venue||'')+' '+c.match_type).replace(/&amp;/g,'&').toLowerCase();
+    return `<tr class="md-row" data-flagged="${fl.length?1:0}" data-text="${esc(searchText)}"><td>${fmtPlayed(c.scheduled_at)}</td><td>${c.venue?esc(c.venue):'—'}</td><td>${c.match_type}</td><td>${sideA}</td><td>${sideB}</td><td>${resTxt}</td><td>${pts}</td><td>${flagTxt}</td><td class="muted">${fmtDateTime(c.created_at)}</td></tr>`;
+  }).join('') || '<tr><td colspan="9" class="muted">No matches yet.</td></tr>';
+  const flagBanner = dashErr && !anomalies.length ? '' : (anomalies.length
+    ? `<div class="card" style="border-left:4px solid var(--warn);cursor:pointer" onclick="openAdminSection('Match review &amp; flags')"><b>⚠️ ${anomalies.length} item(s) flagged for review</b> <span class="muted">— (${anomalies.filter(a=>a.severity==='high').length} high). Tap to open “Match review &amp; flags”.</span></div>`
+    : `<div class="card" style="border-left:4px solid var(--ok)"><b>✅ No match abnormalities flagged.</b></div>`);
+
   app.innerHTML = `
+  ${flagBanner}
+  <div class="card"><h2>Activity dashboard</h2>${activityHtml}</div>
+  <div class="card"><h2>Match review &amp; flags</h2>
+    <h3>Flagged items</h3>${flagsHtml}
+    <h3>Match details (latest 100 by played date)</h3>
+    <div class="row" style="align-items:center">
+      <input id="mdFilter" placeholder="Filter by player, venue or type…">
+      <label style="flex:0 0 auto;white-space:nowrap"><input type="checkbox" id="mdFlagged"> Flagged only</label>
+    </div>
+    <div class="table-scroll" style="max-height:420px;overflow:auto"><table><tr><th>Played</th><th>Venue</th><th>Type</th><th>Side A</th><th>Side B</th><th>Result</th><th>Points</th><th>Flags</th><th>Created (admin)</th></tr>${matchDetailRows}</table></div>
+  </div>
   <div class="card"><h2>Admin settings</h2>
     <label><input type="checkbox" id="pinToggle" ${me.admin_pin_enabled?'checked':''}> Require PIN to open Admin tab</label>
     <label><input type="checkbox" id="sponsorToggle" ${sponsorVisible?'checked':''}> Show sponsor details across the app</label>
-    <label>Disable subscriptions for month (YYYY-MM, blank = none disabled)</label>
-    <input id="disMonth" value="${cfg?.subscriptions_disabled_month||''}" placeholder="2026-09">
+    <label>Waive subscriptions for a month (pick a month, or clear for none)</label>
+    <div class="row" style="align-items:center">
+      <input type="month" id="disMonth" value="${cfg?.subscriptions_disabled_month||''}" placeholder="YYYY-MM">
+      <button class="btn ghost" type="button" id="disMonthClear" style="flex:0 0 auto;min-width:80px">Clear</button>
+    </div>
     <button class="btn" id="saveCfg" style="margin-top:10px">Save settings</button>
   </div>
 
@@ -1100,35 +1436,34 @@ async function renderAdmin(){
     <div id="playersList" style="margin-top:10px"></div>
   </div>
   <div class="card"><h2>Manually enter a match result</h2>
-    <p class="muted">For recording a match directly — historical results, or games played outside the app. This applies rating points immediately; no opponent acceptance needed. The same 24-hour same-matchup cooldown still applies.</p>
+    <p class="muted">For recording a match directly — historical results, or games played outside the app. This applies rating points immediately; no opponent acceptance needed. The same monthly matchup/match-count limits still apply.</p>
     <label>Match type</label>
     <select id="am_type"><option value="singles">Singles</option><option value="doubles">Doubles</option></select>
     <div class="row">
-      <div><label>Side A player</label><select id="am_a">${(all||[]).filter(p=>p.is_approved).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
-      <div id="am_a_partner_box" class="hidden"><label>Side A partner</label><select id="am_a_partner">${(all||[]).filter(p=>p.is_approved).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div><label>Side A player</label><select id="am_a">${(all||[]).filter(p=>p.is_approved).sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div id="am_a_partner_box" class="hidden"><label>Side A partner</label><select id="am_a_partner">${(all||[]).filter(p=>p.is_approved).sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
     </div>
     <div class="row">
-      <div><label>Side B player</label><select id="am_b">${(all||[]).filter(p=>p.is_approved).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
-      <div id="am_b_partner_box" class="hidden"><label>Side B partner</label><select id="am_b_partner">${(all||[]).filter(p=>p.is_approved).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div><label>Side B player</label><select id="am_b">${(all||[]).filter(p=>p.is_approved).sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div id="am_b_partner_box" class="hidden"><label>Side B partner</label><select id="am_b_partner">${(all||[]).filter(p=>p.is_approved).sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
     </div>
     <label>Winner</label>
     <select id="am_winner"><option value="challenger">Side A</option><option value="opponent">Side B</option></select>
-    <label>Date played</label>
+    <label>Date &amp; time played (required)</label>
     <input type="datetime-local" id="am_when">
-    <label>Venue (optional)</label>
-    <input id="am_venue" placeholder="Venue">
+    ${venuePickerHtml('am_venue')}
     <button class="btn" id="am_submit" style="margin-top:12px">Record match</button>
     <div class="error" id="am_err"></div>
   </div>
   <div class="card"><h2>Manage matches</h2>
     <p class="muted">Deleting a match removes its challenge and any result record. It does <b>not</b> automatically reverse rating points that were already applied when the result was accepted.</p>
-    <div class="table-scroll"><table><tr><th>Created</th><th>Side A</th><th>Side B</th><th>Type</th><th>Status</th><th>Result</th><th>Actions</th></tr>${matchRowsAdmin}</table></div>
+    <div class="table-scroll"><table><tr><th>Played</th><th>Side A</th><th>Side B</th><th>Type</th><th>Status</th><th>Result</th><th>Created (admin)</th><th>Actions</th></tr>${matchRowsAdmin}</table></div>
   </div>
   <div class="card"><h2>Singles match history</h2>
-    <div class="table-scroll"><table><tr><th>When</th><th>Player 1</th><th>Player 2</th><th>Winner</th><th>Points</th></tr>${singlesHistory}</table></div>
+    <div class="table-scroll"><table><tr><th>Played</th><th>Player 1</th><th>Player 2</th><th>Winner</th><th>Points</th></tr>${singlesHistory}</table></div>
   </div>
   <div class="card"><h2>Doubles match history</h2>
-    <div class="table-scroll"><table><tr><th>When</th><th>Team 1</th><th>Team 2</th><th>Winner</th><th>Points</th></tr>${doublesHistory}</table></div>
+    <div class="table-scroll"><table><tr><th>Played</th><th>Team 1</th><th>Team 2</th><th>Winner</th><th>Points</th></tr>${doublesHistory}</table></div>
   </div>
   <div class="card"><h2>Community centers</h2>
     <div class="row">${(ccs||[]).map(c=>`<span class="tag">${c.name} <a onclick="removeCC('${c.id}','${c.name.replace(/'/g,"\\'")}')" style="cursor:pointer">✕</a></span>`).join(' ')}</div>
@@ -1138,6 +1473,7 @@ async function renderAdmin(){
   <div class="card"><h2>Inactivity notes</h2>
     ${(notes.data||[]).map(n=>`<p><b>${esc(n.sttl_players?.name||'')}</b>: ${esc(n.reason)} <span class="muted">(${fmtDate(n.created_at)})</span></p>`).join('')||'<p class="muted">None.</p>'}
   </div>`;
+  document.getElementById('disMonthClear').onclick = ()=>{ document.getElementById('disMonth').value=''; };
   document.getElementById('saveCfg').onclick = async (e)=>{
     setLoading(e.currentTarget,true,'Saving...');
     const pinToggle=document.getElementById('pinToggle').checked;
@@ -1153,7 +1489,7 @@ async function renderAdmin(){
   function playerRowHtml(p){
     return `<div class="player-item">
       <div class="player-item-head">
-        <div>${avatarHtml(p,30)}<b>${esc(p.name)}</b>${p.is_admin?' <span class="tag">admin</span>':''}</div>
+        <div>${avatarHtml(p,24)}<b>${esc(p.name)}</b>${p.is_admin?' <span class="tag">admin</span>':''}</div>
         <div class="muted" style="font-size:12px">✉️ ${esc(p.email)||'—'}</div>
       </div>
       <div class="player-item-meta">
@@ -1250,6 +1586,19 @@ async function renderAdmin(){
   document.getElementById('am_a_partner').onchange = updateAmWinnerLabels;
   document.getElementById('am_b_partner').onchange = updateAmWinnerLabels;
   updateAmWinnerLabels();
+  const applyMdFilter = ()=>{
+    const q=(document.getElementById('mdFilter').value||'').trim().toLowerCase();
+    const fo=document.getElementById('mdFlagged').checked;
+    document.querySelectorAll('tr.md-row').forEach(tr=>{
+      const okText = !q || (tr.dataset.text||'').includes(q);
+      const okFlag = !fo || tr.dataset.flagged==='1';
+      tr.classList.toggle('hidden', !(okText && okFlag));
+    });
+  };
+  document.getElementById('mdFilter').oninput = applyMdFilter;
+  document.getElementById('mdFlagged').onchange = applyMdFilter;
+  wireVenuePicker('am_venue');
+  document.getElementById('am_when').max = localInputValue(new Date());
   document.getElementById('am_submit').onclick = async (e)=>{
     const btn=e.currentTarget;
     const err=document.getElementById('am_err');
@@ -1261,8 +1610,10 @@ async function renderAdmin(){
     const pBPartner = isDoubles ? document.getElementById('am_b_partner').value : null;
     const winner=document.getElementById('am_winner').value;
     const whenVal=document.getElementById('am_when').value;
-    const venue=document.getElementById('am_venue').value.trim()||null;
+    const venue=getVenueValue('am_venue')||null;
     err.textContent='';
+    const _whenChk=validatePlayWhenVenue(whenVal, venue, 'played');
+    if(_whenChk){ err.textContent=_whenChk; return; }
     if(pA===pB){ err.textContent='Side A and Side B must be different players.'; return; }
     if(isDoubles && (pAPartner===pA || pBPartner===pB || pAPartner===pB || pBPartner===pA || pAPartner===pBPartner)){
       err.textContent='Each of the four players in a doubles match must be different.'; return;
@@ -1271,7 +1622,7 @@ async function renderAdmin(){
     const {error} = await sb.rpc('admin_record_match', {
       p_challenger: pA, p_challenger_partner: pAPartner, p_opponent: pB, p_opponent_partner: pBPartner,
       p_match_type: match_type, p_winner_side: winner, p_venue: venue,
-      p_scheduled_at: whenVal ? new Date(whenVal).toISOString() : new Date().toISOString()
+      p_scheduled_at: new Date(whenVal).toISOString()
     });
     setLoading(btn,false);
     if(error){
@@ -1280,7 +1631,12 @@ async function renderAdmin(){
     }
     renderAdmin();
   };
+  // Last step, after every handler above is wired: fold each admin card
+  // into a collapsible section. Nodes are moved, not recreated, so all the
+  // IDs and handlers set up above keep working.
+  makeCollapsible(app);
 }
+window.openAdminSection = (label)=>{ adminOpenSections.add(label); renderAdmin(); };
 window.approveUser = async (btn,id)=>{ setLoading(btn,true,'Approving...'); await sb.from('sttl_players').update({is_approved:true}).eq('id',id); renderAdmin(); };
 window.toggleSubscription = async (checkbox,id)=>{
   const newVal = checkbox.checked;
