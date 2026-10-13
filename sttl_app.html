@@ -1134,14 +1134,16 @@ async function monthlyLimitMessage(opponentId, matchType, whenVal){
   const base = whenVal ? new Date(whenVal) : new Date();
   const monthStart=new Date(base.getFullYear(), base.getMonth(), 1).toISOString();
   const nextStart=new Date(base.getFullYear(), base.getMonth()+1, 1).toISOString();
-  const {data:mine}=await sb.from('sttl_challenges').select('id,match_type,challenger_id,opponent_id,challenger_partner_id,opponent_partner_id')
+  const {data:mine}=await sb.from('sttl_challenges').select('id,match_type,status,scheduled_at,challenger_id,opponent_id,challenger_partner_id,opponent_partner_id')
+    .neq('status','declined')
     .gte('scheduled_at', monthStart).lt('scheduled_at', nextStart)
     .or(`challenger_id.eq.${me.id},opponent_id.eq.${me.id},challenger_partner_id.eq.${me.id},opponent_partner_id.eq.${me.id}`);
   const rows=mine||[];
   if(rows.length>=10) return 'You have reached the limit of 10 matches in that calendar month.';
   if(matchType!=='doubles'){
-    const dup=rows.some(r=>r.match_type!=='doubles' && ((r.challenger_id===me.id&&r.opponent_id===opponentId)||(r.challenger_id===opponentId&&r.opponent_id===me.id)));
-    if(dup) return 'You have already played this player in singles that calendar month. The same matchup is limited to once a month.';
+    const dayKey=d=>{const x=new Date(d);return x.getFullYear()+'-'+x.getMonth()+'-'+x.getDate();};
+    const dup=rows.some(r=>r.match_type!=='doubles' && dayKey(r.scheduled_at)===dayKey(base) && ((r.challenger_id===me.id&&r.opponent_id===opponentId)||(r.challenger_id===opponentId&&r.opponent_id===me.id)));
+    if(dup) return 'You have already played this player in singles on that day. The same matchup is limited to once a day (and each player can play 10 matches a month).';
   }
   return null; // doubles matchup rule is checked by the server
 }
@@ -1242,7 +1244,7 @@ function renderInfo(){
     <p>Doubles uses the same idea, but based on each <b>team's average rating</b> rather than one person's. Both partners on the winning team gain the same number of points, and both partners on the losing team lose that same number — teammates always move together.</p>
     <p class="muted">Example: Team A is rated 1000 and 1100 (team average 1050). Team B is rated 1200 and 1300 (team average 1250). If Team A pulls off the upset, both Team A players gain 24 points each, while both Team B players drop 24 points each. If Team B wins as expected instead, each player on both sides only moves 8 points.</p>
     <h2>Match limits</h2>
-    <p>To keep the league fair, <b>the exact same matchup</b> (same players for singles, or the same four players in the same teams for doubles) can only be played <b>once per calendar month</b>. Separately, each player can play a maximum of <b>10 matches per calendar month</b>, singles and doubles combined. Both limits reset on the 1st of each month.</p>
+    <p>To keep the league fair, <b>the exact same matchup</b> (same players for singles, or the same four players in the same teams for doubles) can only be played <b>once per day</b>. Separately, each player can play a maximum of <b>10 matches per calendar month</b>, singles and doubles combined. Both limits reset on the 1st of each month.</p>
     <h2>Date, time and venue</h2>
     <p>Every match needs a <b>date &amp; time</b> and a <b>venue</b> — you can't send a challenge or record a match without them. A match that has already been played can't be dated in the future. Everywhere in the app, a match shows the date and time it was <b>played</b>, and the monthly limits and leaderboards use that played date.</p>
     <h2>Most-played leaderboards — how the winner is chosen</h2>
@@ -1436,7 +1438,7 @@ async function renderAdmin(){
     <div id="playersList" style="margin-top:10px"></div>
   </div>
   <div class="card"><h2>Manually enter a match result</h2>
-    <p class="muted">For recording a match directly — historical results, or games played outside the app. This applies rating points immediately; no opponent acceptance needed. The same monthly matchup/match-count limits still apply.</p>
+    <p class="muted">For recording a match directly — historical results, or games played outside the app. This applies rating points immediately; no opponent acceptance needed. The same limits (same matchup once a day, 10 matches a month) still apply.</p>
     <label>Match type</label>
     <select id="am_type"><option value="singles">Singles</option><option value="doubles">Doubles</option></select>
     <div class="row">
@@ -1540,17 +1542,32 @@ async function renderAdmin(){
     setLoading(btn,true,'Adding...');
     // Uses sbAdmin (a separate client instance) so this signUp never
     // disturbs the admin's own logged-in session.
+    let newId=null, flash='';
     const {data:createData, error:createErr} = await getSbAdmin().auth.signUp({email,password});
-    if(createErr){ setLoading(btn,false); err.textContent = createErr.message; return; }
-    const newId = createData.user?.id;
-    if(!newId){ setLoading(btn,false); err.textContent='Could not create the account. Please try again.'; return; }
+    const alreadyReg = !!createErr && /already/i.test(createErr.message||'');
+    if(createErr && !alreadyReg){ setLoading(btn,false); err.textContent = createErr.message; return; }
+    if(!createErr && createData.user && !(createData.user.identities && createData.user.identities.length===0)){
+      newId = createData.user.id;
+      if(!createData.session) flash='Player added. They may need to confirm their email before logging in (or turn OFF "Confirm email" in Supabase Auth settings).';
+    } else {
+      // Email already has a login (e.g. an earlier attempt created the login but not the profile).
+      // Try to recover: sign in with the password just typed to learn the account id.
+      const {data:si, error:siErr} = await getSbAdmin().auth.signInWithPassword({email,password});
+      if(siErr || !si?.user){ setLoading(btn,false); err.textContent='That email already has a login, and the password you typed does not match it — so the profile cannot be attached. Use the same password they registered with, or ask them to log in and finish their profile.'; return; }
+      newId = si.user.id;
+      try{ await getSbAdmin().auth.signOut(); }catch(_){}
+    }
+    const {data:ex} = await sb.from('sttl_players').select('id').eq('id',newId).maybeSingle();
+    if(ex){ setLoading(btn,false); err.textContent='That player already exists in the list below.'; return; }
     const {error:insErr} = await sb.from('sttl_players').insert({id:newId,name,email,age,community_center,is_approved:true});
     if(insErr){ setLoading(btn,false); err.textContent = insErr.message; return; }
-    if(!createData.session){
-      err.style.color='var(--ok)';
-      err.textContent = 'Player added. Note: they may need to confirm their email before they can log in — or turn OFF "Confirm email" in Supabase Auth settings so it works immediately.';
-    }
-    renderAdmin();
+    // Confirm the row really is readable before claiming success.
+    const {data:chk} = await sb.from('sttl_players').select('id').eq('id',newId).maybeSingle();
+    if(!chk){ setLoading(btn,false); err.textContent='The player was saved but cannot be read back — please re-run the latest sttl_schema.sql in Supabase.'; return; }
+    await renderAdmin();
+    const e2=document.getElementById('nu_err');
+    if(e2){ e2.style.color='var(--ok)'; e2.textContent = (flash||'Player added.')+' They are at the top of the list below.'; }
+    const pl=document.getElementById('playersList'); if(pl && pl.firstElementChild) pl.firstElementChild.style.outline='2px solid var(--ok)';
   };
   document.getElementById('addCCBtn').onclick = async (e)=>{
     const btn=e.currentTarget;
