@@ -206,14 +206,22 @@ function localInputValue(dt){
   const x=new Date(dt.getTime()-dt.getTimezoneOffset()*60000);
   return x.toISOString().slice(0,16);
 }
-// mode 'challenge' = a future/near-future arrangement; 'played' = already played.
+// Dates default to now and can be changed to an earlier time, never a future one.
+// Date/time boxes: default to the current time, can be moved earlier, never later than now.
+function initNowInputs(ids){
+  ids.forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    const refresh=()=>{ el.max=localInputValue(new Date()); };
+    refresh(); el.value=localInputValue(new Date());
+    el.addEventListener('focus',refresh); el.addEventListener('click',refresh);
+  });
+}
 function validatePlayWhenVenue(whenVal, venue, mode){
-  if(!whenVal) return mode==='played' ? 'Please enter the date and time the match was played.' : 'Please choose the date and time you want to play.';
+  if(!whenVal) return mode==='played' ? 'Please enter the date and time the match was played.' : 'Please enter the date and time of the match.';
   const t=new Date(whenVal).getTime();
   if(isNaN(t)) return 'That date and time is not valid.';
   if(!venue) return 'Please choose the venue (or type it in if it is not listed).';
-  if(mode==='played' && t > Date.now()+10*60*1000) return 'A match that has already been played cannot have a date in the future.';
-  if(mode==='challenge' && t < Date.now()-60*60*1000) return 'The date and time cannot be more than an hour in the past.';
+  if(t > Date.now()+2*60*1000) return 'The date and time cannot be in the future — use now or an earlier time.';
   return '';
 }
 function isTrialActive(p){return new Date(p.trial_ends_on) >= new Date(new Date().toDateString());}
@@ -994,7 +1002,7 @@ async function renderPlay(){
     </div>
     <label>Winner</label>
     <select id="qr_winner"><option value="me">Me</option><option value="opp">Opponent</option></select>
-    <label>Date &amp; time played (required)</label>
+    <label>Date &amp; time played (defaults to now; no future dates)</label>
     <input type="datetime-local" id="qr_when">
     ${venuePickerHtml('qr_venue')}
     <button class="btn" id="qr_submit" style="margin-top:12px">Submit for opponent's approval</button>
@@ -1013,7 +1021,7 @@ async function renderPlay(){
       <label>Your partner</label><select id="myPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
       <label>Opponent's partner</label><select id="oppPartner">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
     </div>
-    <label>Date &amp; time you want to play (required)</label>
+    <label>Date &amp; time (defaults to now — change it if earlier; no future dates)</label>
     <input type="datetime-local" id="whenPlay">
     ${venuePickerHtml('venue')}
     <button class="btn" id="sendChallenge" style="margin-top:12px">Send Challenge</button>
@@ -1035,8 +1043,7 @@ async function renderPlay(){
     document.getElementById('partnerBox').classList.toggle('hidden', e.target.value!=='doubles');
   };
   wireVenuePicker('venue');
-  document.getElementById('whenPlay').min = localInputValue(new Date(Date.now()-60*60*1000));
-  document.getElementById('qr_when').max = localInputValue(new Date());
+  initNowInputs(['whenPlay','qr_when']);
   document.getElementById('sendChallenge').onclick = async (e)=>{
     const btn=e.currentTarget;
     const opponent_id0 = document.getElementById('opp').value;
@@ -1246,7 +1253,7 @@ function renderInfo(){
     <h2>Match limits</h2>
     <p>To keep the league fair, <b>the exact same matchup</b> (same players for singles, or the same four players in the same teams for doubles) can only be played <b>once per day</b>. Separately, each player can play a maximum of <b>10 matches per calendar month</b>, singles and doubles combined. Both limits reset on the 1st of each month.</p>
     <h2>Date, time and venue</h2>
-    <p>Every match needs a <b>date &amp; time</b> and a <b>venue</b> — you can't send a challenge or record a match without them. A match that has already been played can't be dated in the future. Everywhere in the app, a match shows the date and time it was <b>played</b>, and the monthly limits and leaderboards use that played date.</p>
+    <p>Every match needs a <b>date &amp; time</b> and a <b>venue</b> — you can't send a challenge or record a match without them. The date and time default to now; you can change them to an earlier time but never to a future one. Everywhere in the app, a match shows the date and time it was <b>played</b>, and the monthly limits and leaderboards use that played date.</p>
     <h2>Most-played leaderboards — how the winner is chosen</h2>
     <p>Besides the points ranking, the Dashboard has a <b>Most Played</b> board for <b>this month</b>, <b>last month</b> and <b>overall</b>. It rewards turning up: the player with the <b>most matches played</b> comes first, even if someone else has more wins. Singles and doubles both count, and only matches that have been accepted/approved are counted.</p>
     <p>If two or more players have the <b>same number of matches</b>, we always pick one leader using these tie-breaks, in this order:</p>
@@ -1451,7 +1458,7 @@ async function renderAdmin(){
     </div>
     <label>Winner</label>
     <select id="am_winner"><option value="challenger">Side A</option><option value="opponent">Side B</option></select>
-    <label>Date &amp; time played (required)</label>
+    <label>Date &amp; time played (defaults to now; no future dates)</label>
     <input type="datetime-local" id="am_when">
     ${venuePickerHtml('am_venue')}
     <button class="btn" id="am_submit" style="margin-top:12px">Record match</button>
@@ -1615,7 +1622,7 @@ async function renderAdmin(){
   document.getElementById('mdFilter').oninput = applyMdFilter;
   document.getElementById('mdFlagged').onchange = applyMdFilter;
   wireVenuePicker('am_venue');
-  document.getElementById('am_when').max = localInputValue(new Date());
+  initNowInputs(['am_when']);
   document.getElementById('am_submit').onclick = async (e)=>{
     const btn=e.currentTarget;
     const err=document.getElementById('am_err');
